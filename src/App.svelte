@@ -1,23 +1,40 @@
 <script>
   import PdfViewer from './lib/PdfViewer.svelte';
+  import TextViewer from './lib/TextViewer.svelte';
   import CommentSidebar from './lib/CommentSidebar.svelte';
-  import { addAnnotation } from './lib/annotations.svelte.js';
-  import { extractTextFromPdf, reviewDocument, findChunkInPage } from './lib/review.js';
+  import ChatSidebar from './lib/ChatSidebar.svelte';
+  import { addAnnotation, clearAnnotations } from './lib/annotations.svelte.js';
+  import { extractAndStore, getExtractedText, getFormattedText, clearExtractedText } from './lib/documentContext.svelte.js';
+  import { getAdapter } from './lib/adapters/index.js';
+  import { reviewDocument, REVIEW_PROMPT_USER } from './lib/review.js';
+  import { sendMessage, DEFAULT_MODEL } from './lib/chat.js';
 
   let fileContent = $state(null);
-  let fileBytes = null; // separate copy for review, not reactive
   let fileName = $state(null);
   let fileType = $state(null);
   let dragging = $state(false);
   let sidebarCollapsed = $state(false);
+  let chatCollapsed = $state(false);
 
   // Review state
   let reviewing = $state(false);
   let reviewError = $state(null);
   let showApiKeyModal = $state(false);
   let apiKeyInput = $state('');
+  let showCloseConfirm = $state(false);
+  let showPromptModal = $state(false);
+  let promptPreview = $state('');
+  let pendingApiKey = $state(null);
 
-  let pdfViewerRef = $state(null);
+  // Summary state
+  let showSummary = $state(false);
+  let summaryText = $state('');
+  let summaryLoading = $state(false);
+  let summaryError = $state(null);
+
+  let viewerRef = $state(null);
+  let commentSidebarRef = $state(null);
+  let chatSidebarRef = $state(null);
 
   function getApiKey() {
     return localStorage.getItem('anthropic_api_key');
@@ -43,21 +60,17 @@
     fileType = getFileType(file);
 
     const reader = new FileReader();
-    reader.onload = (e) => {
-      if (fileType === 'pdf') {
-        const bytes = new Uint8Array(e.target.result);
-        fileBytes = bytes.slice(); // keep a separate copy for review
-        fileContent = bytes;
-      } else {
-        fileContent = e.target.result;
+    reader.onload = async (e) => {
+      const bytes = new Uint8Array(e.target.result);
+      fileContent = fileType === 'pdf' ? bytes : new TextDecoder().decode(bytes);
+      try {
+        await extractAndStore(bytes, fileType);
+        fetchSummary();
+      } catch (err) {
+        console.error('Failed to extract document text:', err);
       }
     };
-
-    if (fileType === 'pdf') {
-      reader.readAsArrayBuffer(file);
-    } else {
-      reader.readAsText(file);
-    }
+    reader.readAsArrayBuffer(file);
   }
 
   function handleDragOver(event) {
@@ -71,9 +84,42 @@
 
   function clearFile() {
     fileContent = null;
-    fileBytes = null;
     fileName = null;
     fileType = null;
+    clearExtractedText();
+    clearAnnotations();
+    chatSidebarRef?.clearChat();
+    summaryText = '';
+    summaryLoading = false;
+    showSummary = false;
+    summaryError = null;
+    reviewError = null;
+  }
+
+  function toggleSummary() {
+    showSummary = !showSummary;
+  }
+
+  async function fetchSummary() {
+    const key = getApiKey();
+    if (!key) return; // will fetch when key is set
+
+    summaryLoading = true;
+    summaryError = null;
+    try {
+      const result = await sendMessage({
+        apiKey: key,
+        model: DEFAULT_MODEL,
+        messages: [{ role: 'user', content: 'Please provide a concise summary of this document in one or two paragraphs.' }],
+        documentText: getFormattedText(),
+        onChunk() {},
+      });
+      summaryText = result;
+    } catch (e) {
+      summaryError = e.message;
+    } finally {
+      summaryLoading = false;
+    }
   }
 
   function startReview() {
@@ -82,7 +128,7 @@
       showApiKeyModal = true;
       return;
     }
-    runReview(key);
+    showPromptConfirmation(key);
   }
 
   function submitApiKey() {
@@ -91,19 +137,41 @@
     saveApiKey(key);
     showApiKeyModal = false;
     apiKeyInput = '';
-    runReview(key);
+    showPromptConfirmation(key);
   }
 
-  async function runReview(apiKey) {
+  function showPromptConfirmation(apiKey) {
+    promptPreview = REVIEW_PROMPT_USER;
+    pendingApiKey = apiKey;
+    showPromptModal = true;
+  }
+
+  function confirmReview() {
+    const userPrompt = promptPreview.trim();
+    showPromptModal = false;
+    runReview(pendingApiKey, userPrompt);
+    pendingApiKey = null;
+    promptPreview = '';
+  }
+
+  function cancelReview() {
+    showPromptModal = false;
+    pendingApiKey = null;
+    promptPreview = '';
+  }
+
+  async function runReview(apiKey, userPrompt) {
     reviewing = true;
     reviewError = null;
     sidebarCollapsed = false;
 
     try {
-      const extractedText = await extractTextFromPdf(fileBytes);
-      const observations = await reviewDocument(extractedText, apiKey);
+      const extractedText = getExtractedText();
+      if (!extractedText) throw new Error('No document text available. Please re-upload the file.');
+      const adapter = getAdapter(fileType);
+      const observations = await reviewDocument(extractedText, apiKey, userPrompt);
 
-      const pageWrappers = pdfViewerRef?.getPageWrappers() || [];
+      const pageWrappers = viewerRef?.getPageWrappers() || [];
       const chunkMap = new Map(extractedText.chunks.map((c) => [c.id, c]));
       for (const obs of observations) {
         if (!obs.chunk_ids || !obs.comment) continue;
@@ -123,7 +191,7 @@
           const pageWrapper = pageWrappers[chunk.pageNumber - 1];
           if (!pageWrapper) continue;
 
-          const found = findChunkInPage(pageWrapper, chunk.text);
+          const found = adapter?.findChunkRects(pageWrapper, chunk.text);
           if (found) {
             const pageWidth = pageWrapper.offsetWidth;
             const pageHeight = pageWrapper.offsetHeight;
@@ -141,10 +209,11 @@
 
         addAnnotation({
           pageNumber: primaryPage || 1,
-          text: displayText.slice(0, 200) + (displayText.length > 200 ? '...' : ''),
+          text: displayText,
           rects: allRects,
           comment: obs.comment,
           author: 'claude',
+          priority: obs.priority || null,
         });
       }
     } catch (e) {
@@ -163,32 +232,48 @@
 <main>
   {#if fileContent !== null}
     <div class="app-layout">
+      <ChatSidebar bind:collapsed={chatCollapsed} bind:this={chatSidebarRef} apiKey={getApiKey() || ''} />
       <div class="viewer">
         <div class="toolbar">
-          <span class="filename">{fileName}</span>
+          <button class="filename" onclick={toggleSummary} title="Click to view document summary">{fileName}</button>
           <div class="toolbar-actions">
             {#if reviewError}
               <span class="review-error" title={reviewError}>{reviewError}</span>
             {/if}
-            {#if fileType === 'pdf'}
-              <button class="btn-review" onclick={startReview} disabled={reviewing}>
-                {#if reviewing}
-                  Reviewing...
-                {:else}
-                  Review
-                {/if}
-              </button>
-            {/if}
-            <button onclick={clearFile}>Close</button>
+            <button class="btn-review" onclick={startReview} disabled={reviewing}>
+              {#if reviewing}
+                Reviewing...
+              {:else}
+                Review
+              {/if}
+            </button>
+            <button onclick={() => showCloseConfirm = true}>Close</button>
           </div>
         </div>
+        {#if showSummary}
+          <div class="summary-panel">
+            <div class="summary-header">
+              <span>Document Summary</span>
+              <button onclick={() => showSummary = false}>&times;</button>
+            </div>
+            <div class="summary-content">
+              {#if summaryLoading && !summaryText}
+                <span class="summary-loading">Generating summary...</span>
+              {:else if summaryError}
+                <span class="summary-error">{summaryError}</span>
+              {:else}
+                {summaryText}
+              {/if}
+            </div>
+          </div>
+        {/if}
         {#if fileType === 'pdf'}
-          <PdfViewer data={fileContent} bind:this={pdfViewerRef} />
+          <PdfViewer data={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
         {:else}
-          <pre class="content">{fileContent}</pre>
+          <TextViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
         {/if}
       </div>
-      <CommentSidebar bind:collapsed={sidebarCollapsed} onselect={(id) => pdfViewerRef?.scrollToAnnotation(id)} />
+      <CommentSidebar bind:collapsed={sidebarCollapsed} bind:this={commentSidebarRef} onselect={(id) => viewerRef?.scrollToAnnotation(id)} />
     </div>
   {:else}
     <div
@@ -228,6 +313,37 @@
         <div class="modal-actions">
           <button class="btn-submit" onclick={submitApiKey}>Save & Review</button>
           <button onclick={() => showApiKeyModal = false}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showPromptModal}
+    <div class="modal-overlay" onclick={cancelReview}>
+      <div class="modal modal-wide" onclick={(e) => e.stopPropagation()}>
+        <h3>Review Prompt</h3>
+        <p>Edit the prompt that will be sent to the Claude API:</p>
+        <textarea
+          class="prompt-textarea"
+          bind:value={promptPreview}
+          onkeydown={(e) => { if (e.key === 'Enter' && e.metaKey) confirmReview(); }}
+        ></textarea>
+        <div class="modal-actions">
+          <button class="btn-submit" onclick={confirmReview}>Send Review</button>
+          <button onclick={cancelReview}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showCloseConfirm}
+    <div class="modal-overlay" onclick={() => showCloseConfirm = false}>
+      <div class="modal" onclick={(e) => e.stopPropagation()}>
+        <h3>Close Document</h3>
+        <p>This will clear all comments, chat history, and review data. Are you sure?</p>
+        <div class="modal-actions">
+          <button class="btn-submit btn-danger" onclick={() => { showCloseConfirm = false; clearFile(); }}>Close Document</button>
+          <button onclick={() => showCloseConfirm = false}>Cancel</button>
         </div>
       </div>
     </div>
@@ -300,6 +416,17 @@
     font-weight: 600;
     font-size: 0.9rem;
     color: #ccc;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: inherit;
+  }
+
+  .filename:hover {
+    background: #2a2a4a;
+    color: #fff;
   }
 
   .toolbar-actions {
@@ -435,5 +562,92 @@
 
   .modal-actions .btn-submit:hover {
     background: #535bf2;
+  }
+
+  .modal-actions .btn-danger {
+    background: #dc2626;
+    border-color: #dc2626;
+  }
+
+  .modal-actions .btn-danger:hover {
+    background: #b91c1c;
+  }
+
+  .modal-wide {
+    width: 700px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .prompt-textarea {
+    width: 100%;
+    min-height: 150px;
+    margin: 0 0 16px 0;
+    padding: 12px;
+    background: #0d0d1a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ddd;
+    font-family: inherit;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
+
+  .prompt-textarea:focus {
+    outline: none;
+    border-color: #646cff;
+  }
+
+  .summary-panel {
+    background: #1a1a2e;
+    border-bottom: 1px solid #333;
+    max-height: 200px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #aaa;
+    border-bottom: 1px solid #2a2a4a;
+  }
+
+  .summary-header button {
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+  }
+
+  .summary-header button:hover {
+    color: #ccc;
+  }
+
+  .summary-content {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    color: #ccc;
+    line-height: 1.5;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  .summary-loading {
+    color: #666;
+    font-style: italic;
+  }
+
+  .summary-error {
+    color: #f87171;
   }
 </style>

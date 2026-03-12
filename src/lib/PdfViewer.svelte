@@ -10,7 +10,7 @@
     addAnnotation,
   } from './annotations.svelte.js';
 
-  let { data } = $props();
+  let { data, onAnnotationClick = () => {} } = $props();
 
   let container;
   let scrollArea;
@@ -27,6 +27,11 @@
   // Track page wrappers for highlight rendering
   let pageWrappers = $state([]);
 
+  // Debug sliders for text layer calibration
+  let dbgScaleX = $state(1.175);
+  let dbgTranslateX = $state(-36.5);
+  let dbgShowPanel = $state(false); // set to true to show calibration sliders
+
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
     'pdfjs-dist/build/pdf.worker.mjs',
     import.meta.url
@@ -36,17 +41,99 @@
     loadPdf();
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('click', handleAnnotationClick);
     return () => {
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('click', handleAnnotationClick);
     };
   });
+
+  function handleAnnotationClick(e) {
+    // Ignore clicks on the sidebar (comments handle their own activation)
+    if (e.target.closest('.sidebar') || e.target.closest('.comment-card') || e.target.closest('.expand-btn')) return;
+
+    if (!container) {
+      setActiveAnnotationId(null);
+      return;
+    }
+
+    // Direct hit: check if the click landed on (or inside) a highlight-rect element.
+    // This works even if the element was just recreated, because we search
+    // the live DOM at the click point as a fallback below.
+    const highlightEl = e.target.closest('.highlight-rect');
+    if (highlightEl && highlightEl.dataset.annotationId) {
+      const id = highlightEl.dataset.annotationId;
+      setActiveAnnotationId(id);
+      onAnnotationClick(id);
+      return;
+    }
+
+    // The click target may be a text-layer span or canvas.  Find which
+    // page-wrapper we are in so we can do coordinate-based hit testing.
+    const wrapper = e.target.closest('.page-wrapper');
+    if (!wrapper || !container.contains(wrapper)) {
+      // Also try to find the wrapper from the live DOM at the click point,
+      // in case the original target was detached by a reactive re-render
+      // between mousedown and click.
+      const elAtPoint = document.elementFromPoint(e.clientX, e.clientY);
+      const wrapperAtPoint = elAtPoint?.closest('.page-wrapper');
+
+      // Check if the element at the click point is a highlight-rect
+      const highlightAtPoint = elAtPoint?.closest('.highlight-rect');
+      if (highlightAtPoint && highlightAtPoint.dataset.annotationId) {
+        const id = highlightAtPoint.dataset.annotationId;
+        setActiveAnnotationId(id);
+        onAnnotationClick(id);
+        return;
+      }
+
+      if (!wrapperAtPoint || !container.contains(wrapperAtPoint)) {
+        setActiveAnnotationId(null);
+        return;
+      }
+      // Fall through to coordinate hit-testing with the wrapper found at the click point
+      return handleAnnotationHitTest(e, wrapperAtPoint);
+    }
+
+    handleAnnotationHitTest(e, wrapper);
+  }
+
+  function handleAnnotationHitTest(e, wrapper) {
+    const pageNum = parseInt(wrapper.dataset.pageNumber);
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const x = e.clientX - wrapperRect.left;
+    const y = e.clientY - wrapperRect.top;
+    const pageW = wrapper.offsetWidth;
+    const pageH = wrapper.offsetHeight;
+
+    const currentAnnotations = getAnnotations();
+    const pageAnnotations = currentAnnotations.filter((a) => a.pageNumber === pageNum && !a.resolved);
+    for (const annotation of pageAnnotations) {
+      for (const rect of annotation.rects) {
+        const left = rect.left * pageW;
+        const top = rect.top * pageH;
+        const right = left + rect.width * pageW;
+        const bottom = top + rect.height * pageH;
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          setActiveAnnotationId(annotation.id);
+          onAnnotationClick(annotation.id);
+          return;
+        }
+      }
+    }
+
+    // Clicked on the page but not on any annotation — deactivate
+    setActiveAnnotationId(null);
+  }
 
   function handleMouseDown(e) {
     // If clicking outside popover/comment input, close them
     if (!e.target.closest('.selection-popover') && !e.target.closest('.comment-input-popover')) {
-      popover = { visible: false, x: 0, y: 0 };
-      if (!e.target.closest('.comment-input-popover')) {
+      if (popover.visible) {
+        popover = { visible: false, x: 0, y: 0 };
+      }
+      if (!e.target.closest('.comment-input-popover') && commentInput.visible) {
         commentInput = { ...commentInput, visible: false };
         commentText = '';
       }
@@ -58,7 +145,9 @@
 
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.toString().trim()) {
-      popover = { visible: false, x: 0, y: 0 };
+      if (popover.visible) {
+        popover = { visible: false, x: 0, y: 0 };
+      }
       return;
     }
 
@@ -198,6 +287,9 @@
       // Text layer
       const textLayerDiv = document.createElement('div');
       textLayerDiv.className = 'textLayer';
+      textLayerDiv.style.setProperty('--scale-factor', scale * (globalThis.devicePixelRatio || 1));
+      textLayerDiv.style.setProperty('--user-unit', 1);
+      textLayerDiv.style.transform = `scaleX(${dbgScaleX}) translateX(${dbgTranslateX}px)`;
       wrapper.appendChild(textLayerDiv);
 
       // Highlight overlay container
@@ -255,6 +347,15 @@
     const _activeId = activeId;
     const _pending = commentInput.visible;
     renderHighlights();
+  });
+
+  // Reactively update text layer transforms when debug sliders change
+  $effect(() => {
+    const sx = dbgScaleX;
+    const tx = dbgTranslateX;
+    container?.querySelectorAll('.textLayer').forEach((el) => {
+      el.style.transform = `scaleX(${sx}) translateX(${tx}px)`;
+    });
   });
 
   export function scrollToAnnotation(id) {
@@ -318,7 +419,6 @@
           el.style.top = `${rect.top * pageHeight}px`;
           el.style.width = `${rect.width * pageWidth}px`;
           el.style.height = `${rect.height * pageHeight}px`;
-          el.addEventListener('click', () => setActiveAnnotationId(annotation.id));
           layer.appendChild(el);
         }
       }
@@ -331,7 +431,24 @@
   <span class="zoom-level">{Math.round(scale * 100)}%</span>
   <button onclick={zoomIn}>+</button>
   <span class="page-info">{pageCount} page{pageCount !== 1 ? 's' : ''}</span>
+  <!-- Debug toggle: uncomment to show calibration panel -->
+  <!--<button onclick={() => dbgShowPanel = !dbgShowPanel} class="dbg-toggle">
+    {dbgShowPanel ? 'Hide' : 'Debug'}
+  </button>-->
 </div>
+{#if dbgShowPanel}
+  <div class="dbg-panel">
+    <label>
+      scaleX: <strong>{dbgScaleX.toFixed(3)}</strong>
+      <input type="range" min="0.8" max="1.3" step="0.005" bind:value={dbgScaleX} />
+    </label>
+    <label>
+      translateX: <strong>{dbgTranslateX.toFixed(1)}px</strong>
+      <input type="range" min="-100" max="100" step="0.5" bind:value={dbgTranslateX} />
+    </label>
+    <button onclick={() => { dbgScaleX = 1.175; dbgTranslateX = -36.5; }}>Reset</button>
+  </div>
+{/if}
 <div class="pdf-scroll-area" bind:this={scrollArea}>
   <div class="pdf-container" bind:this={container}></div>
 
@@ -427,6 +544,7 @@
   .pdf-container :global(.page-wrapper) {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     background: white;
+    overflow: hidden;
   }
 
   .pdf-container :global(canvas) {
@@ -450,6 +568,7 @@
     bottom: 0;
     overflow: hidden;
     line-height: 1;
+    transform-origin: 0 0;
   }
 
   .pdf-container :global(.textLayer ::selection) {
@@ -476,10 +595,14 @@
     transition: background 0.15s, border-color 0.15s;
   }
 
-  .pdf-container :global(.highlight-rect:hover),
-  .pdf-container :global(.highlight-rect.active) {
+  .pdf-container :global(.highlight-rect:hover) {
     background: rgba(255, 213, 79, 0.35);
-    border-bottom-color: transparent;
+    mix-blend-mode: multiply;
+  }
+
+  .pdf-container :global(.highlight-rect.active) {
+    background: rgba(66, 153, 225, 0.3);
+    border-bottom-color: rgba(66, 153, 225, 0.9);
     mix-blend-mode: multiply;
   }
 
@@ -578,5 +701,66 @@
 
   .btn-cancel:hover {
     background: #2a2a4a;
+  }
+
+  .dbg-toggle {
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    border-radius: 3px;
+    border: 1px solid #555;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+  }
+
+  .dbg-toggle:hover {
+    background: #333;
+    color: #ccc;
+  }
+
+  .dbg-panel {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 16px;
+    background: #12121f;
+    border-bottom: 1px solid #333;
+  }
+
+  .dbg-panel label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: #aaa;
+    white-space: nowrap;
+  }
+
+  .dbg-panel label strong {
+    min-width: 50px;
+    text-align: right;
+    color: #ddd;
+    font-family: monospace;
+  }
+
+  .dbg-panel input[type="range"] {
+    width: 120px;
+    accent-color: #646cff;
+  }
+
+  .dbg-panel button {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    border-radius: 3px;
+    border: 1px solid #555;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+  }
+
+  .dbg-panel button:hover {
+    background: #333;
+    color: #ccc;
   }
 </style>

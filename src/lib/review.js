@@ -1,50 +1,8 @@
-import * as pdfjsLib from 'pdfjs-dist';
 import Anthropic from '@anthropic-ai/sdk';
 
-/**
- * Extract text from a PDF as indexed chunks.
- * Each chunk gets a unique ID like "p1.3" (page 1, chunk 3).
- * Returns { chunks: [{id, pageNumber, text}], formatted: string }
- */
-export async function extractTextFromPdf(data) {
-  const doc = await pdfjsLib.getDocument({ data: data.slice() }).promise;
-  const chunks = [];
-  const lines = [];
+export const REVIEW_PROMPT_USER = `Please review the attached report as if you were opposing counsel preparing to depose the expert who authored or supported this document. Identify internal inconsistencies, unsupported claims, logical gaps, and any statements that could be challenged under cross-examination. Please keep observations clear and direct and focused on high-level argument weaknesses rather than deeply technical issues.`;
 
-  for (let p = 1; p <= doc.numPages; p++) {
-    const page = await doc.getPage(p);
-    const content = await page.getTextContent();
-
-    // Group text items into sentences/chunks by splitting on sentence boundaries
-    let currentText = '';
-    const items = content.items.filter((item) => item.str);
-
-    for (const item of items) {
-      currentText += item.str;
-    }
-
-    // Split page text into sentences
-    const sentences = currentText.split(/(?<=[.!?])\s+/).filter((s) => s.trim());
-
-    for (let i = 0; i < sentences.length; i++) {
-      const id = `p${p}.${i + 1}`;
-      chunks.push({ id, pageNumber: p, text: sentences[i].trim() });
-    }
-
-    lines.push(`[Page ${p}]`);
-    const pageChunks = chunks.filter((c) => c.pageNumber === p);
-    for (const chunk of pageChunks) {
-      lines.push(`[${chunk.id}] ${chunk.text}`);
-    }
-    lines.push('');
-  }
-
-  return { chunks, formatted: lines.join('\n') };
-}
-
-const REVIEW_PROMPT = `Please review the attached report and identify any internal inconsistencies in the document. Please keep observations clear and direct and about high level argument inconsistencies rather than deeply technical issues.
-
-Each sentence in the document is labeled with an ID like [p1.3] (page 1, sentence 3). For each observation, reference the specific sentence IDs that are relevant. Use the "review" tool to submit your observations.`;
+const REVIEW_PROMPT_INTERNAL = `Each sentence in the document is labeled with an ID like [p1.3] (page 1, sentence 3). For each observation, reference the specific sentence IDs that are relevant. Classify each observation as "high", "medium", or "low" priority based on the severity of the issue and its potential impact in a deposition or cross-examination. Use the "review" tool to submit your observations.`;
 
 const REVIEW_TOOL = {
   name: 'review',
@@ -66,8 +24,13 @@ const REVIEW_TOOL = {
               type: 'string',
               description: 'Your observation about the referenced text',
             },
+            priority: {
+              type: 'string',
+              enum: ['high', 'medium', 'low'],
+              description: 'Priority/risk level: high = critical vulnerability likely to be exploited in deposition, medium = notable weakness worth preparing for, low = minor issue or nitpick',
+            },
           },
-          required: ['chunk_ids', 'comment'],
+          required: ['chunk_ids', 'comment', 'priority'],
         },
       },
     },
@@ -75,11 +38,13 @@ const REVIEW_TOOL = {
   },
 };
 
-export async function reviewDocument(extractedText, apiKey) {
+export async function reviewDocument(extractedText, apiKey, userPrompt) {
   const client = new Anthropic({
     apiKey,
     dangerouslyAllowBrowser: true,
   });
+
+  const fullPrompt = `${userPrompt}\n\n${REVIEW_PROMPT_INTERNAL}`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -89,7 +54,7 @@ export async function reviewDocument(extractedText, apiKey) {
     messages: [
       {
         role: 'user',
-        content: `${REVIEW_PROMPT}\n\n---\n\n${extractedText.formatted}`,
+        content: `${fullPrompt}\n\n---\n\n${extractedText.formatted}`,
       },
     ],
   });
@@ -115,85 +80,5 @@ export async function reviewDocument(extractedText, apiKey) {
       return false;
     }
     return true;
-  });
-}
-
-/**
- * Find the rects for a chunk's text within the PDF's text layer.
- * Searches for the chunk text in the specified page's text layer spans.
- */
-export function findChunkInPage(pageWrapper, chunkText) {
-  if (!chunkText || !pageWrapper) return null;
-  const textLayer = pageWrapper.querySelector('.textLayer');
-  if (!textLayer) return null;
-
-  const spans = Array.from(textLayer.querySelectorAll('span'));
-  if (spans.length === 0) return null;
-
-  const fullText = spans.map((s) => s.textContent).join('');
-  const normalizedChunk = chunkText.replace(/\s+/g, ' ').trim();
-  const normalizedFull = fullText.replace(/\s+/g, ' ');
-
-  // Try exact match first, then case-insensitive
-  let idx = normalizedFull.indexOf(normalizedChunk);
-  if (idx === -1) {
-    idx = normalizedFull.toLowerCase().indexOf(normalizedChunk.toLowerCase());
-  }
-  // Try with first 60 chars if full match fails (sentence boundary differences)
-  if (idx === -1 && normalizedChunk.length > 60) {
-    const prefix = normalizedChunk.slice(0, 60);
-    idx = normalizedFull.toLowerCase().indexOf(prefix.toLowerCase());
-  }
-  if (idx === -1) return null;
-
-  const matchLen = Math.min(normalizedChunk.length, normalizedFull.length - idx);
-  const matchEnd = idx + matchLen;
-
-  const pageRect = pageWrapper.getBoundingClientRect();
-  const rects = [];
-  let normalizedCount = 0;
-  let inMatch = false;
-
-  for (const span of spans) {
-    const normalizedSpanText = span.textContent.replace(/\s+/g, ' ');
-
-    for (let i = 0; i < normalizedSpanText.length; i++) {
-      if (normalizedCount === idx) inMatch = true;
-      if (normalizedCount === matchEnd) inMatch = false;
-      normalizedCount++;
-    }
-
-    if (inMatch || (normalizedCount > idx && normalizedCount <= matchEnd)) {
-      const spanRect = span.getBoundingClientRect();
-      rects.push({
-        left: spanRect.left - pageRect.left,
-        top: spanRect.top - pageRect.top,
-        width: spanRect.width,
-        height: spanRect.height,
-      });
-    }
-  }
-
-  if (rects.length === 0) return null;
-  return mergeRects(rects);
-}
-
-function mergeRects(rects) {
-  const lines = [];
-  for (const rect of rects) {
-    const existingLine = lines.find((l) => Math.abs(l[0].top - rect.top) < 3);
-    if (existingLine) {
-      existingLine.push(rect);
-    } else {
-      lines.push([rect]);
-    }
-  }
-
-  return lines.map((lineRects) => {
-    const left = Math.min(...lineRects.map((r) => r.left));
-    const top = Math.min(...lineRects.map((r) => r.top));
-    const right = Math.max(...lineRects.map((r) => r.left + r.width));
-    const bottom = Math.max(...lineRects.map((r) => r.top + r.height));
-    return { left, top, width: right - left, height: bottom - top };
   });
 }

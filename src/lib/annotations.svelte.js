@@ -1,3 +1,10 @@
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, c =>
+    (+c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> +c / 4).toString(16)
+  );
+}
+
 let annotations = $state([]);
 let activeAnnotationId = $state(null);
 
@@ -15,7 +22,7 @@ export function setActiveAnnotationId(id) {
 
 export function addAnnotation({ pageNumber, text, rects, comment, author = 'user', priority = null }) {
   const annotation = {
-    id: crypto.randomUUID(),
+    id: uuid(),
     pageNumber,
     text,
     rects, // [{left, top, width, height}] relative to page dimensions
@@ -72,7 +79,7 @@ export function clearAnnotations() {
 
 export function addReply(annotationId, { comment, author = 'user' }) {
   const reply = {
-    id: crypto.randomUUID(),
+    id: uuid(),
     comment,
     author,
     timestamp: Date.now(),

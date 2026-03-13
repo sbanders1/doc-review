@@ -1,7 +1,10 @@
 <script>
   import { tick } from 'svelte';
+  import { marked } from 'marked';
   import { sendMessage, AVAILABLE_MODELS, DEFAULT_MODEL } from './chat.js';
   import { getFormattedText } from './documentContext.svelte.js';
+
+  marked.setOptions({ breaks: true, gfm: true });
 
   let { collapsed = $bindable(false), apiKey = '' } = $props();
 
@@ -11,6 +14,22 @@
   let error = $state(null);
   let selectedModel = $state(DEFAULT_MODEL);
   let messageListEl;
+  let sidebarWidth = $state(350);
+
+  function startResize(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    function onMouseMove(e) {
+      sidebarWidth = Math.max(200, Math.min(800, startWidth + (e.clientX - startX)));
+    }
+    function onMouseUp() {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
 
   function scrollToBottom() {
     tick().then(() => {
@@ -89,7 +108,7 @@
     </svg>
   </button>
 {:else}
-  <div class="sidebar">
+  <div class="sidebar" style="width:{sidebarWidth}px;min-width:{sidebarWidth}px">
     <div class="sidebar-header">
       <h3>Chat</h3>
       <div class="header-right">
@@ -111,9 +130,13 @@
       {#each messages as msg, i (i)}
         <div class="message" class:user={msg.role === 'user'} class:assistant={msg.role === 'assistant'}>
           <div class="message-role">{msg.role === 'user' ? 'You' : 'Claude'}</div>
-          <div class="message-content">
+          <div class="message-content" class:markdown={msg.role === 'assistant'}>
             {#if msg.content}
-              {msg.content}
+              {#if msg.role === 'assistant'}
+                {@html marked(msg.content)}
+              {:else}
+                {msg.content}
+              {/if}
             {:else if streaming && i === messages.length - 1}
               <span class="typing">Thinking...</span>
             {/if}
@@ -151,18 +174,33 @@
         </button>
       </div>
     </div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle" onmousedown={startResize}></div>
   </div>
 {/if}
 
 <style>
   .sidebar {
-    width: 350px;
-    min-width: 350px;
+    position: relative;
     background: #13132a;
     border-right: 1px solid #2a2a4a;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+  }
+
+  .resize-handle:hover {
+    background: #646cff55;
   }
 
   .sidebar-header {
@@ -289,8 +327,91 @@
     font-size: 0.85rem;
     color: #ccc;
     line-height: 1.5;
-    white-space: pre-wrap;
     word-wrap: break-word;
+  }
+
+  .message.user .message-content {
+    white-space: pre-wrap;
+  }
+
+  .message-content.markdown :global(p) {
+    margin: 0 0 8px 0;
+  }
+
+  .message-content.markdown :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .message-content.markdown :global(ul),
+  .message-content.markdown :global(ol) {
+    margin: 0 0 8px 0;
+    padding-left: 20px;
+  }
+
+  .message-content.markdown :global(li) {
+    margin-bottom: 2px;
+  }
+
+  .message-content.markdown :global(code) {
+    background: #0d0d1a;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-family: 'Courier New', monospace;
+  }
+
+  .message-content.markdown :global(pre) {
+    background: #0d0d1a;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 4px 0 8px 0;
+    overflow-x: auto;
+  }
+
+  .message-content.markdown :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .message-content.markdown :global(h1),
+  .message-content.markdown :global(h2),
+  .message-content.markdown :global(h3),
+  .message-content.markdown :global(h4) {
+    margin: 8px 0 4px 0;
+    color: #ddd;
+  }
+
+  .message-content.markdown :global(h1) { font-size: 1.1rem; }
+  .message-content.markdown :global(h2) { font-size: 1rem; }
+  .message-content.markdown :global(h3) { font-size: 0.95rem; }
+
+  .message-content.markdown :global(blockquote) {
+    margin: 4px 0 8px 0;
+    padding: 4px 8px;
+    border-left: 2px solid #646cff;
+    color: #999;
+  }
+
+  .message-content.markdown :global(table) {
+    border-collapse: collapse;
+    margin: 4px 0 8px 0;
+    font-size: 0.8rem;
+  }
+
+  .message-content.markdown :global(th),
+  .message-content.markdown :global(td) {
+    border: 1px solid #2a2a4a;
+    padding: 4px 8px;
+  }
+
+  .message-content.markdown :global(th) {
+    background: #1a1a35;
+    color: #ddd;
+  }
+
+  .message-content.markdown :global(strong) {
+    color: #ddd;
   }
 
   .typing {

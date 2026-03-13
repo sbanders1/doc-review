@@ -1,6 +1,7 @@
 <script>
   import PdfViewer from './lib/PdfViewer.svelte';
   import TextViewer from './lib/TextViewer.svelte';
+  import DocxViewer from './lib/DocxViewer.svelte';
   import CommentSidebar from './lib/CommentSidebar.svelte';
   import ChatSidebar from './lib/ChatSidebar.svelte';
   import { addAnnotation, clearAnnotations } from './lib/annotations.svelte.js';
@@ -13,6 +14,7 @@
   let fileName = $state(null);
   let fileType = $state(null);
   let dragging = $state(false);
+  let uploadError = $state(null);
   let sidebarCollapsed = $state(false);
   let chatCollapsed = $state(false);
 
@@ -36,16 +38,34 @@
   let commentSidebarRef = $state(null);
   let chatSidebarRef = $state(null);
 
+  const EMBEDDED_API_KEY = typeof __ANTHROPIC_API_KEY__ !== 'undefined' ? __ANTHROPIC_API_KEY__ : '';
+
   function getApiKey() {
-    return localStorage.getItem('anthropic_api_key');
+    return EMBEDDED_API_KEY || localStorage.getItem('anthropic_api_key');
   }
 
   function saveApiKey(key) {
     localStorage.setItem('anthropic_api_key', key);
   }
 
-  function getFileType(file) {
-    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) return 'pdf';
+  function detectFileType(bytes) {
+    // PDF: starts with %PDF
+    if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+      return 'pdf';
+    }
+    // ZIP (DOCX is a ZIP archive): starts with PK\x03\x04
+    if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04) {
+      return 'docx';
+    }
+    // Legacy .doc (OLE2 Compound Document): starts with D0 CF 11 E0
+    if (bytes.length >= 4 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0) {
+      return 'docx';
+    }
+    // Otherwise check if it looks like text (no null bytes in first 8KB)
+    const sample = bytes.slice(0, 8192);
+    for (let i = 0; i < sample.length; i++) {
+      if (sample[i] === 0x00) return null; // likely binary
+    }
     return 'text';
   }
 
@@ -57,20 +77,40 @@
     if (!file) return;
 
     fileName = file.name;
-    fileType = getFileType(file);
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const bytes = new Uint8Array(e.target.result);
-      fileContent = fileType === 'pdf' ? bytes : new TextDecoder().decode(bytes);
-      try {
-        await extractAndStore(bytes, fileType);
-        fetchSummary();
-      } catch (err) {
-        console.error('Failed to extract document text:', err);
+    // Read only the first 8KB for type detection, then read the full file if supported
+    const detectionBlob = file.slice(0, 8192);
+    const detectionReader = new FileReader();
+    detectionReader.onload = async (e) => {
+      const sample = new Uint8Array(e.target.result);
+      fileType = detectFileType(sample);
+      if (!fileType) {
+        uploadError = `"${file.name}" is not a supported file type. Please upload a PDF, Word document (.docx/.doc), or text file.`;
+        fileName = null;
+        return;
       }
+      uploadError = null;
+
+      const fullReader = new FileReader();
+      fullReader.onload = async (e2) => {
+        const bytes = new Uint8Array(e2.target.result);
+        try {
+          if (fileType === 'pdf') {
+            fileContent = bytes;
+          } else if (fileType === 'docx') {
+            fileContent = bytes;
+          } else {
+            fileContent = new TextDecoder().decode(bytes);
+          }
+          await extractAndStore(bytes, fileType);
+          fetchSummary();
+        } catch (err) {
+          console.error('Failed to extract document text:', err);
+        }
+      };
+      fullReader.readAsArrayBuffer(file);
     };
-    reader.readAsArrayBuffer(file);
+    detectionReader.readAsArrayBuffer(detectionBlob);
   }
 
   function handleDragOver(event) {
@@ -269,6 +309,8 @@
         {/if}
         {#if fileType === 'pdf'}
           <PdfViewer data={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
+        {:else if fileType === 'docx'}
+          <DocxViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
         {:else}
           <TextViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
         {/if}
@@ -294,7 +336,10 @@
           <line x1="15" y1="15" x2="12" y2="12"/>
         </svg>
         <p>Drop a file here to view it</p>
-        <p class="supported-types">.txt, .pdf</p>
+        <p class="supported-types">.txt, .pdf, .docx, .doc</p>
+        {#if uploadError}
+          <p class="upload-error">{uploadError}</p>
+        {/if}
       </div>
     </div>
   {/if}
@@ -394,6 +439,15 @@
   .supported-types {
     font-size: 0.85rem !important;
     color: #555;
+  }
+
+  .upload-error {
+    font-size: 0.85rem !important;
+    color: #f87171;
+    margin-top: 16px !important;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .viewer {

@@ -16,6 +16,24 @@
 
   let { collapsed = $bindable(false), onselect = () => {} } = $props();
 
+  let sidebarWidth = $state(320);
+
+  function startResize(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    function onMouseMove(e) {
+      sidebarWidth = Math.max(200, Math.min(800, startWidth - (e.clientX - startX)));
+    }
+    function onMouseUp() {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    }
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
+  let activeTab = $state('open'); // 'open' | 'resolved'
   let editingId = $state(null);
   let editText = $state('');
   let replyingTo = $state(null);
@@ -89,6 +107,12 @@
   const annotations = $derived(getAnnotations());
   const activeId = $derived(getActiveAnnotationId());
   const unresolvedCount = $derived(annotations.filter(a => !a.resolved).length);
+  const resolvedCount = $derived(annotations.filter(a => a.resolved).length);
+  const filteredAnnotations = $derived(
+    activeTab === 'open'
+      ? annotations.filter(a => !a.resolved)
+      : annotations.filter(a => a.resolved)
+  );
 
   export function scrollToComment(id) {
     collapsed = false;
@@ -109,11 +133,12 @@
     {/if}
   </button>
 {:else}
-  <div class="sidebar" onclick={(e) => { if (e.target.closest('.comment-card')) return; setActiveAnnotationId(null); }}>
+  <div class="sidebar" style="width:{sidebarWidth}px;min-width:{sidebarWidth}px" onclick={(e) => { if (e.target.closest('.comment-card')) return; setActiveAnnotationId(null); }}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize-handle" onmousedown={startResize}></div>
     <div class="sidebar-header">
       <h3>Comments</h3>
       <div class="header-right">
-        <span class="count">{unresolvedCount} open</span>
         <button class="collapse-btn" onclick={() => collapsed = true} title="Hide comments">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="9 18 15 12 9 6"/>
@@ -122,14 +147,27 @@
       </div>
     </div>
 
-    {#if annotations.length === 0}
+    <div class="tabs">
+      <button class="tab" class:active={activeTab === 'open'} onclick={() => activeTab = 'open'}>
+        Open{#if unresolvedCount > 0}<span class="tab-count">{unresolvedCount}</span>{/if}
+      </button>
+      <button class="tab" class:active={activeTab === 'resolved'} onclick={() => activeTab = 'resolved'}>
+        Resolved{#if resolvedCount > 0}<span class="tab-count">{resolvedCount}</span>{/if}
+      </button>
+    </div>
+
+    {#if filteredAnnotations.length === 0}
       <div class="empty">
-        <p>No comments yet.</p>
-        <p class="hint">Select text on the document to add a comment.</p>
+        {#if activeTab === 'open'}
+          <p>No open comments.</p>
+          <p class="hint">Select text on the document to add a comment.</p>
+        {:else}
+          <p>No resolved comments.</p>
+        {/if}
       </div>
     {:else}
       <div class="comment-list">
-        {#each annotations as annotation (annotation.id)}
+        {#each filteredAnnotations as annotation (annotation.id)}
           <div
             class="comment-card"
             class:active={activeId === annotation.id}
@@ -282,13 +320,26 @@
 
 <style>
   .sidebar {
-    width: 320px;
-    min-width: 320px;
+    position: relative;
     background: #13132a;
     border-left: 1px solid #2a2a4a;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .resize-handle {
+    position: absolute;
+    top: 0;
+    left: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+  }
+
+  .resize-handle:hover {
+    background: #646cff55;
   }
 
   .sidebar-header {
@@ -311,9 +362,50 @@
     gap: 8px;
   }
 
-  .count {
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid #2a2a4a;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 8px 12px;
     font-size: 0.8rem;
-    color: #888;
+    font-weight: 600;
+    color: #666;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .tab:hover {
+    color: #aaa;
+    background: #1a1a35;
+  }
+
+  .tab.active {
+    color: #ddd;
+    border-bottom-color: #646cff;
+  }
+
+  .tab-count {
+    font-size: 0.7rem;
+    background: #2a2a4a;
+    color: #aaa;
+    border-radius: 8px;
+    padding: 0 6px;
+    min-width: 18px;
+    text-align: center;
+  }
+
+  .tab.active .tab-count {
+    background: #646cff33;
+    color: #646cff;
   }
 
   .collapse-btn {
@@ -402,10 +494,6 @@
 
   .comment-card.active {
     border-color: #646cff;
-  }
-
-  .comment-card.resolved {
-    opacity: 0.5;
   }
 
   .comment-meta {

@@ -15,7 +15,7 @@
   let container;
   let scrollArea;
   let pageCount = $state(0);
-  let scale = $state(1.5);
+  let scale = $state(1);
   let pdfDoc = $state(null);
   let rendering = $state(false);
 

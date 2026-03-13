@@ -1,5 +1,6 @@
 import { pdfAdapter } from './pdf.js';
 import { textAdapter } from './text.js';
+import { docxAdapter } from './docx.js';
 
 const adapters = new Map();
 
@@ -10,6 +11,7 @@ function registerAdapter(adapter) {
 // Register built-in adapters
 registerAdapter(pdfAdapter);
 registerAdapter(textAdapter);
+registerAdapter(docxAdapter);
 
 export function getAdapter(fileType) {
   return adapters.get(fileType) || null;

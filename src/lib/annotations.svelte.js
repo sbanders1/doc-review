@@ -114,3 +114,20 @@ export function deleteReply(annotationId, replyId) {
       : a
   );
 }
+
+export function getAnnotationsSnapshot() {
+  return {
+    annotations: JSON.parse(JSON.stringify(annotations)),
+    activeAnnotationId,
+  };
+}
+
+export function restoreAnnotationsSnapshot(snapshot) {
+  if (!snapshot) {
+    annotations = [];
+    activeAnnotationId = null;
+    return;
+  }
+  annotations = snapshot.annotations || [];
+  activeAnnotationId = snapshot.activeAnnotationId || null;
+}

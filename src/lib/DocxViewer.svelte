@@ -15,7 +15,6 @@
   let docxContentEl;
   let renderError = $state(null);
 
-  // Selection popover state
   let popover = $state({ visible: false, x: 0, y: 0 });
   let commentInput = $state({ visible: false, x: 0, y: 0, text: '', selectionRects: [] });
   let commentText = $state('');
@@ -176,6 +175,22 @@
     return pageWrapper ? [pageWrapper] : [];
   }
 
+  export function getViewerSnapshot() {
+    return {
+      scrollTop: scrollArea?.scrollTop ?? 0,
+      scrollLeft: scrollArea?.scrollLeft ?? 0,
+    };
+  }
+
+  export async function restoreViewerSnapshot(snapshot) {
+    if (!snapshot) return;
+    await tick();
+    if (scrollArea) {
+      scrollArea.scrollTop = snapshot.scrollTop ?? 0;
+      scrollArea.scrollLeft = snapshot.scrollLeft ?? 0;
+    }
+  }
+
   export function scrollToAnnotation(id) {
     tick().then(() => {
       renderHighlights();
@@ -241,86 +256,52 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="docx-container" bind:this={scrollArea} onclick={handleClick}>
-  <div class="page-wrapper" bind:this={pageWrapper}>
+<div class="flex-1 min-h-0 overflow-auto bg-gray-200 dark:bg-gray-900 relative" bind:this={scrollArea} onclick={handleClick}>
+  <div class="page-wrapper relative min-h-full" bind:this={pageWrapper}>
     {#if renderError}
-      <div class="render-error">{renderError}</div>
+      <div class="px-6 py-6 text-center text-red-500 text-sm">{renderError}</div>
     {/if}
-    <div class="docx-content" bind:this={docxContentEl}></div>
+    <div class="docx-content flex flex-col items-center py-5 gap-5" bind:this={docxContentEl}></div>
     <div class="highlight-layer" data-page="1"></div>
   </div>
 
   {#if popover.visible}
     <div
-      class="selection-popover"
-      style="left: {popover.x}px; top: {popover.y}px;"
+      class="selection-popover absolute z-10"
+      style="left: {popover.x}px; top: {popover.y}px; transform: translateX(-50%) translateY(-100%);"
     >
-      <button onclick={startComment}>Add Comment</button>
+      <button
+        class="px-3.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm cursor-pointer whitespace-nowrap shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-primary-500 transition-colors"
+        onclick={startComment}
+      >Add Comment</button>
     </div>
   {/if}
 
   {#if commentInput.visible}
     <div
-      class="comment-input-popover"
+      class="comment-input-popover absolute z-10 w-[280px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl p-2.5"
       style="left: {commentInput.x}px; top: {commentInput.y}px;"
     >
-      <div class="comment-input-header">Comment on selection</div>
+      <div class="text-xs text-gray-400 dark:text-gray-500 mb-2">Comment on selection</div>
       <textarea
         bind:value={commentText}
         placeholder="Write a comment..."
+        class="w-full min-h-[70px] p-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-gray-100 resize-y mb-2 focus:outline-none focus:border-primary-500"
         onkeydown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); }
           if (e.key === 'Escape') cancelComment();
         }}
       ></textarea>
-      <div class="comment-input-actions">
-        <button class="btn-submit" onclick={submitComment}>Comment</button>
-        <button class="btn-cancel" onclick={cancelComment}>Cancel</button>
+      <div class="flex gap-1.5 justify-end">
+        <button class="px-3 py-1 rounded-md bg-primary-500 hover:bg-primary-600 text-white text-xs border-none cursor-pointer transition-colors" onclick={submitComment}>Comment</button>
+        <button class="px-3 py-1 rounded-md border border-gray-200 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick={cancelComment}>Cancel</button>
       </div>
     </div>
   {/if}
 </div>
 
 <style>
-  .docx-container {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    background: #e0e0e0;
-    position: relative;
-  }
-
-  .page-wrapper {
-    position: relative;
-    min-height: 100%;
-  }
-
-  /* docx-preview renders pages as sections with class "docx".
-     Style the container to center pages with spacing. */
-  .docx-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px 0;
-    gap: 20px;
-  }
-
-  /* Style the rendered page sections */
-  .docx-content :global(section.docx) {
-    background: white;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    overflow: hidden;
-  }
-
-  .render-error {
-    padding: 24px;
-    text-align: center;
-    color: #f87171;
-    font-size: 0.9rem;
-  }
-
-  /* Highlight layer */
-  .docx-container :global(.highlight-layer) {
+  .highlight-layer {
     position: absolute;
     top: 0;
     left: 0;
@@ -330,7 +311,13 @@
     z-index: 1;
   }
 
-  .docx-container :global(.highlight-rect) {
+  .docx-content :global(section.docx) {
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+  }
+
+  :global(.highlight-rect) {
     position: absolute;
     background: rgba(255, 200, 0, 0.25);
     border-bottom: 2px solid rgba(255, 200, 0, 0.7);
@@ -338,107 +325,17 @@
     cursor: pointer;
   }
 
-  .docx-container :global(.highlight-rect:hover) {
+  :global(.highlight-rect:hover) {
     background: rgba(255, 200, 0, 0.35);
     border-bottom-color: rgba(255, 200, 0, 0.9);
   }
 
-  .docx-container :global(.highlight-rect.active) {
-    background: rgba(100, 108, 255, 0.25);
-    border-bottom: 2px solid rgba(100, 108, 255, 0.8);
+  :global(.highlight-rect.active) {
+    background: rgba(45, 106, 79, 0.2);
+    border-bottom: 2px solid rgba(45, 106, 79, 0.7);
   }
 
-  .docx-container :global(.highlight-rect.resolved) {
+  :global(.highlight-rect.resolved) {
     opacity: 0.4;
-  }
-
-  /* Popovers */
-  .selection-popover {
-    position: absolute;
-    transform: translateX(-50%) translateY(-100%);
-    z-index: 10;
-  }
-
-  .selection-popover button {
-    padding: 6px 14px;
-    border-radius: 6px;
-    border: 1px solid #555;
-    background: #1a1a2e;
-    color: #ddd;
-    font-size: 0.85rem;
-    cursor: pointer;
-    white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  }
-
-  .selection-popover button:hover {
-    background: #2a2a4a;
-    border-color: #646cff;
-  }
-
-  .comment-input-popover {
-    position: absolute;
-    z-index: 10;
-    width: 280px;
-    background: #1a1a2e;
-    border: 1px solid #444;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    padding: 10px;
-  }
-
-  .comment-input-header {
-    font-size: 0.8rem;
-    color: #888;
-    margin-bottom: 8px;
-  }
-
-  .comment-input-popover textarea {
-    width: 100%;
-    min-height: 70px;
-    padding: 8px;
-    background: #0d0d1a;
-    border: 1px solid #333;
-    border-radius: 4px;
-    color: #ddd;
-    font-size: 0.85rem;
-    font-family: inherit;
-    resize: vertical;
-    margin-bottom: 8px;
-  }
-
-  .comment-input-popover textarea:focus {
-    outline: none;
-    border-color: #646cff;
-  }
-
-  .comment-input-actions {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-  }
-
-  .comment-input-actions button {
-    padding: 4px 12px;
-    border-radius: 4px;
-    border: 1px solid #444;
-    background: transparent;
-    color: #ccc;
-    cursor: pointer;
-    font-size: 0.8rem;
-  }
-
-  .btn-submit {
-    background: #646cff !important;
-    border-color: #646cff !important;
-    color: white !important;
-  }
-
-  .btn-submit:hover {
-    background: #535bf2 !important;
-  }
-
-  .btn-cancel:hover {
-    background: #2a2a4a;
   }
 </style>

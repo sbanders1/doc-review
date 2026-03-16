@@ -1,4 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { getMockMode } from './mockMode.svelte.js';
+import { mockReviewDocument } from './mock.js';
 
 const DAUBERT_CORPUS = typeof __DAUBERT_CORPUS__ !== 'undefined' ? __DAUBERT_CORPUS__ : '';
 
@@ -40,7 +42,11 @@ const REVIEW_TOOL = {
   },
 };
 
-export async function reviewDocument(extractedText, apiKey, userPrompt) {
+export async function reviewDocument(extractedText, apiKey, userPrompt, model = 'claude-sonnet-4-20250514') {
+  if (getMockMode()) {
+    return mockReviewDocument(extractedText, apiKey, userPrompt, model);
+  }
+
   const client = new Anthropic({
     apiKey,
     dangerouslyAllowBrowser: true,
@@ -54,7 +60,7 @@ export async function reviewDocument(extractedText, apiKey, userPrompt) {
   }
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model,
     max_tokens: 8192,
     tools: [REVIEW_TOOL],
     tool_choice: { type: 'tool', name: 'review' },

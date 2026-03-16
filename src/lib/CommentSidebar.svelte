@@ -1,5 +1,6 @@
 <script>
   import { tick } from 'svelte';
+  import { ChevronLeft, ChevronRight, Pencil, Trash2, Check, Reply, RotateCcw } from 'lucide-svelte';
   import {
     getAnnotations,
     getActiveAnnotationId,
@@ -33,7 +34,7 @@
     window.addEventListener('mouseup', onMouseUp);
   }
 
-  let activeTab = $state('open'); // 'open' | 'resolved'
+  let activeTab = $state('open');
   let editingId = $state(null);
   let editText = $state('');
   let replyingTo = $state(null);
@@ -124,170 +125,179 @@
 </script>
 
 {#if collapsed}
-  <button class="expand-btn" onclick={() => collapsed = false} title="Show comments">
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="15 18 9 12 15 6"/>
-    </svg>
+  <button
+    class="flex flex-col items-center gap-1 py-2 px-1.5 border-none border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-400 dark:text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+    onclick={() => collapsed = false}
+    title="Show comments"
+  >
+    <ChevronLeft size={18} />
     {#if unresolvedCount > 0}
-      <span class="badge">{unresolvedCount}</span>
+      <span class="text-[0.7rem] bg-primary-500 text-white rounded-full px-1.5 py-px min-w-[16px] text-center">{unresolvedCount}</span>
     {/if}
   </button>
 {:else}
-  <div class="sidebar" style="width:{sidebarWidth}px;min-width:{sidebarWidth}px" onclick={(e) => { if (e.target.closest('.comment-card')) return; setActiveAnnotationId(null); }}>
+  <div
+    class="relative bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden"
+    style="width:{sidebarWidth}px;min-width:{sidebarWidth}px"
+    onclick={(e) => { if (e.target.closest('.comment-card')) return; setActiveAnnotationId(null); }}
+  >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="resize-handle" onmousedown={startResize}></div>
-    <div class="sidebar-header">
-      <h3>Comments</h3>
-      <div class="header-right">
-        <button class="collapse-btn" onclick={() => collapsed = true} title="Hide comments">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </button>
-      </div>
+    <div class="absolute top-0 -left-[3px] w-[6px] h-full cursor-col-resize z-10 hover:bg-primary-500/30" onmousedown={startResize}></div>
+
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+      <h3 class="m-0 text-sm font-semibold text-gray-900 dark:text-gray-100">Comments</h3>
+      <button
+        class="flex items-center justify-center w-7 h-7 rounded-md border border-gray-200 dark:border-gray-600 bg-transparent text-gray-400 dark:text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+        onclick={() => collapsed = true}
+        title="Hide comments"
+      >
+        <ChevronRight size={16} />
+      </button>
     </div>
 
-    <div class="tabs">
-      <button class="tab" class:active={activeTab === 'open'} onclick={() => activeTab = 'open'}>
-        Open{#if unresolvedCount > 0}<span class="tab-count">{unresolvedCount}</span>{/if}
+    <div class="flex border-b border-gray-200 dark:border-gray-700">
+      <button
+        class="flex-1 py-2 px-3 text-xs font-semibold bg-transparent border-none border-b-2 cursor-pointer flex items-center justify-center gap-1.5 transition-colors {activeTab === 'open' ? 'text-gray-900 dark:text-gray-100 border-b-primary-500' : 'text-gray-400 dark:text-gray-500 border-b-transparent hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+        onclick={() => activeTab = 'open'}
+      >
+        Open{#if unresolvedCount > 0}<span class="text-[0.7rem] rounded-full px-1.5 min-w-[18px] text-center {activeTab === 'open' ? 'bg-primary-500/15 text-primary-500' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}">{unresolvedCount}</span>{/if}
       </button>
-      <button class="tab" class:active={activeTab === 'resolved'} onclick={() => activeTab = 'resolved'}>
-        Resolved{#if resolvedCount > 0}<span class="tab-count">{resolvedCount}</span>{/if}
+      <button
+        class="flex-1 py-2 px-3 text-xs font-semibold bg-transparent border-none border-b-2 cursor-pointer flex items-center justify-center gap-1.5 transition-colors {activeTab === 'resolved' ? 'text-gray-900 dark:text-gray-100 border-b-primary-500' : 'text-gray-400 dark:text-gray-500 border-b-transparent hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}"
+        onclick={() => activeTab = 'resolved'}
+      >
+        Resolved{#if resolvedCount > 0}<span class="text-[0.7rem] rounded-full px-1.5 min-w-[18px] text-center {activeTab === 'resolved' ? 'bg-primary-500/15 text-primary-500' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}">{resolvedCount}</span>{/if}
       </button>
     </div>
 
     {#if filteredAnnotations.length === 0}
-      <div class="empty">
+      <div class="px-4 py-6 text-center text-gray-400 dark:text-gray-500">
         {#if activeTab === 'open'}
-          <p>No open comments.</p>
-          <p class="hint">Select text on the document to add a comment.</p>
+          <p class="m-1 text-sm">No open comments.</p>
+          <p class="m-1 text-xs text-gray-400 dark:text-gray-600">Select text on the document to add a comment.</p>
         {:else}
-          <p>No resolved comments.</p>
+          <p class="m-1 text-sm">No resolved comments.</p>
         {/if}
       </div>
     {:else}
-      <div class="comment-list">
+      <div class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
         {#each filteredAnnotations as annotation (annotation.id)}
           <div
-            class="comment-card"
-            class:active={activeId === annotation.id}
-            class:resolved={annotation.resolved}
+            class="comment-card p-2.5 px-3 rounded-lg bg-white dark:bg-gray-800 border cursor-pointer transition-colors {activeId === annotation.id ? 'border-primary-500 shadow-sm' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'} {annotation.resolved ? 'opacity-60' : ''}"
             data-annotation-id={annotation.id}
             onclick={() => handleClick(annotation.id)}
             role="button"
             tabindex="0"
           >
-            <div class="comment-meta">
-              <span class="author">{annotation.author}</span>
-              <span class="time">{formatTime(annotation.timestamp)}</span>
+            <div class="flex items-center gap-1.5 mb-1.5">
+              <span class="text-xs font-semibold text-gray-600 dark:text-gray-400">{annotation.author}</span>
+              <span class="text-[0.7rem] text-gray-400 dark:text-gray-500 mr-auto">{formatTime(annotation.timestamp)}</span>
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <div class="priority-badge-wrapper" onclick={(e) => e.stopPropagation()}>
+              <div class="ml-auto relative" onclick={(e) => e.stopPropagation()}>
                 <span
-                  class="priority-badge priority-{annotation.priority || 'none'}"
+                  class="px-1.5 py-px text-[0.65rem] font-semibold uppercase tracking-wide rounded border cursor-pointer inline-block whitespace-nowrap leading-snug hover:brightness-125
+                    {annotation.priority === 'high' ? 'text-red-500 border-red-500/25 bg-red-500/10' :
+                     annotation.priority === 'medium' ? 'text-amber-500 border-amber-500/25 bg-amber-500/10' :
+                     annotation.priority === 'low' ? 'text-blue-500 border-blue-500/25 bg-blue-500/10' :
+                     'text-gray-400 dark:text-gray-500 border-gray-300 dark:border-gray-600'}"
                   onclick={() => priorityDropdownId = priorityDropdownId === annotation.id ? null : annotation.id}
                 >{annotation.priority ? annotation.priority : '—'}</span>
                 {#if priorityDropdownId === annotation.id}
-                  <div class="priority-dropdown">
-                    <button class="opt-high" onclick={() => { updateAnnotationPriority(annotation.id, 'high'); priorityDropdownId = null; }}>High</button>
-                    <button class="opt-medium" onclick={() => { updateAnnotationPriority(annotation.id, 'medium'); priorityDropdownId = null; }}>Medium</button>
-                    <button class="opt-low" onclick={() => { updateAnnotationPriority(annotation.id, 'low'); priorityDropdownId = null; }}>Low</button>
-                    <button class="opt-none" onclick={() => { updateAnnotationPriority(annotation.id, null); priorityDropdownId = null; }}>None</button>
+                  <div class="absolute right-0 top-full mt-0.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-20 overflow-hidden">
+                    <button class="block w-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wide border-none bg-transparent cursor-pointer whitespace-nowrap text-left text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700" onclick={() => { updateAnnotationPriority(annotation.id, 'high'); priorityDropdownId = null; }}>High</button>
+                    <button class="block w-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wide border-none bg-transparent cursor-pointer whitespace-nowrap text-left text-amber-500 hover:bg-gray-100 dark:hover:bg-gray-700" onclick={() => { updateAnnotationPriority(annotation.id, 'medium'); priorityDropdownId = null; }}>Medium</button>
+                    <button class="block w-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wide border-none bg-transparent cursor-pointer whitespace-nowrap text-left text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700" onclick={() => { updateAnnotationPriority(annotation.id, 'low'); priorityDropdownId = null; }}>Low</button>
+                    <button class="block w-full px-3 py-1 text-[0.7rem] font-semibold uppercase tracking-wide border-none bg-transparent cursor-pointer whitespace-nowrap text-left text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700" onclick={() => { updateAnnotationPriority(annotation.id, null); priorityDropdownId = null; }}>None</button>
                   </div>
                 {/if}
               </div>
             </div>
 
-            <blockquote class="quoted-text">"{annotation.text.length > 200 ? annotation.text.slice(0, 200) + '...' : annotation.text}"</blockquote>
+            <blockquote class="m-0 mb-2 pl-2 border-l-2 border-primary-500 text-xs text-gray-500 dark:text-gray-400 italic">"{annotation.text.length > 200 ? annotation.text.slice(0, 200) + '...' : annotation.text}"</blockquote>
 
             {#if editingId === annotation.id}
               <textarea
                 bind:value={editText}
-                class="edit-input"
+                class="w-full min-h-[60px] p-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-gray-100 resize-y mb-1.5 focus:outline-none focus:border-primary-500"
                 onkeydown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(annotation.id, null); }
                   if (e.key === 'Escape') cancelEdit();
                 }}
               ></textarea>
-              <div class="edit-actions">
-                <button class="btn-save" onclick={() => saveEdit(annotation.id, null)}>Save</button>
-                <button class="btn-cancel" onclick={cancelEdit}>Cancel</button>
+              <div class="flex gap-1.5 mb-1.5">
+                <button class="px-2 py-0.5 text-xs rounded border border-primary-500/30 bg-transparent text-primary-500 cursor-pointer hover:bg-primary-500/10 transition-colors" onclick={() => saveEdit(annotation.id, null)}>Save</button>
+                <button class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick={cancelEdit}>Cancel</button>
               </div>
             {:else}
-              <p class="comment-text">{annotation.comment}</p>
+              <p class="m-0 mb-2 text-sm text-gray-700 dark:text-gray-300 leading-snug">{annotation.comment}</p>
             {/if}
 
-            <div class="comment-actions">
+            <div class="flex gap-1.5">
               <button
-                class="btn-resolve"
-                class:is-resolved={annotation.resolved}
+                class="px-2 py-0.5 text-[0.7rem] rounded border bg-transparent cursor-pointer transition-colors {annotation.resolved ? 'text-green-500 border-green-500/30 hover:bg-green-500/10' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
                 onclick={(e) => { e.stopPropagation(); resolveAnnotation(annotation.id); }}
               >
                 {annotation.resolved ? 'Reopen' : 'Resolve'}
               </button>
               {#if editingId !== annotation.id}
-                <button class="btn-edit" onclick={(e) => { e.stopPropagation(); startEdit(annotation); }}>Edit</button>
+                <button class="px-2 py-0.5 text-[0.7rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick={(e) => { e.stopPropagation(); startEdit(annotation); }}>Edit</button>
               {/if}
               {#if !annotation.replies || annotation.replies.length === 0}
-                <button class="btn-reply" onclick={(e) => { e.stopPropagation(); startReply(annotation.id); }}>Reply</button>
+                <button class="px-2 py-0.5 text-[0.7rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick={(e) => { e.stopPropagation(); startReply(annotation.id); }}>Reply</button>
               {/if}
-              <button class="btn-delete" onclick={(e) => { e.stopPropagation(); deleteAnnotation(annotation.id); }}>Delete</button>
+              <button class="px-2 py-0.5 text-[0.7rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:text-red-500 hover:border-red-500/30 transition-colors" onclick={(e) => { e.stopPropagation(); deleteAnnotation(annotation.id); }}>Delete</button>
             </div>
 
             {#if annotation.replies && annotation.replies.length > 0}
               <button
-                class="thread-toggle"
+                class="flex items-center gap-1 mt-2 py-0.5 border-none bg-transparent text-primary-500 text-xs cursor-pointer hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
                 onclick={(e) => { e.stopPropagation(); toggleThread(annotation.id); }}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                  class:chevron-expanded={expandedThreads.has(annotation.id)}
-                >
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
+                <ChevronRight size={12} class="{expandedThreads.has(annotation.id) ? 'rotate-90' : ''} transition-transform" />
                 {annotation.replies.length} {annotation.replies.length === 1 ? 'reply' : 'replies'}
               </button>
 
               {#if expandedThreads.has(annotation.id)}
-                <div class="replies">
+                <div class="mt-1.5 pl-3 border-l-2 border-gray-200 dark:border-gray-700 flex flex-col gap-1.5">
                   {#each annotation.replies as reply, replyIndex (reply.id)}
-                    <div class="reply-card" class:resolved={reply.resolved}>
-                      <div class="comment-meta">
-                        <span class="author">{reply.author}</span>
-                        <span class="time">{formatTime(reply.timestamp)}</span>
+                    <div class="p-2 rounded bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700/50 {reply.resolved ? 'opacity-50' : ''}">
+                      <div class="flex items-center gap-1.5 mb-1">
+                        <span class="text-xs font-semibold text-gray-600 dark:text-gray-400">{reply.author}</span>
+                        <span class="text-[0.7rem] text-gray-400 dark:text-gray-500">{formatTime(reply.timestamp)}</span>
                       </div>
 
                       {#if editingId === reply.id}
                         <textarea
                           bind:value={editText}
-                          class="edit-input"
+                          class="w-full min-h-[50px] p-1.5 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded text-xs text-gray-900 dark:text-gray-100 resize-y mb-1.5 focus:outline-none focus:border-primary-500"
                           onkeydown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(annotation.id, reply.id); }
                             if (e.key === 'Escape') cancelEdit();
                           }}
                         ></textarea>
-                        <div class="edit-actions">
-                          <button class="btn-save" onclick={() => saveEdit(annotation.id, reply.id)}>Save</button>
-                          <button class="btn-cancel" onclick={cancelEdit}>Cancel</button>
+                        <div class="flex gap-1.5 mb-1">
+                          <button class="px-2 py-0.5 text-[0.65rem] rounded border border-primary-500/30 bg-transparent text-primary-500 cursor-pointer hover:bg-primary-500/10" onclick={() => saveEdit(annotation.id, reply.id)}>Save</button>
+                          <button class="px-2 py-0.5 text-[0.65rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700" onclick={cancelEdit}>Cancel</button>
                         </div>
                       {:else}
-                        <p class="comment-text">{reply.comment}</p>
+                        <p class="m-0 mb-1 text-xs text-gray-700 dark:text-gray-300 leading-snug">{reply.comment}</p>
                       {/if}
 
-                      <div class="comment-actions">
+                      <div class="flex gap-1.5">
                         <button
-                          class="btn-resolve"
-                          class:is-resolved={reply.resolved}
+                          class="px-1.5 py-px text-[0.65rem] rounded border bg-transparent cursor-pointer transition-colors {reply.resolved ? 'text-green-500 border-green-500/30' : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}"
                           onclick={(e) => { e.stopPropagation(); resolveReply(annotation.id, reply.id); }}
                         >
                           {reply.resolved ? 'Reopen' : 'Resolve'}
                         </button>
                         {#if editingId !== reply.id}
-                          <button class="btn-edit" onclick={(e) => { e.stopPropagation(); startEdit(reply); }}>Edit</button>
+                          <button class="px-1.5 py-px text-[0.65rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700" onclick={(e) => { e.stopPropagation(); startEdit(reply); }}>Edit</button>
                         {/if}
                         {#if replyIndex === annotation.replies.length - 1}
-                          <button class="btn-reply" onclick={(e) => { e.stopPropagation(); startReply(annotation.id); }}>Reply</button>
+                          <button class="px-1.5 py-px text-[0.65rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700" onclick={(e) => { e.stopPropagation(); startReply(annotation.id); }}>Reply</button>
                         {/if}
-                        <button class="btn-delete" onclick={(e) => { e.stopPropagation(); deleteReply(annotation.id, reply.id); }}>Delete</button>
+                        <button class="px-1.5 py-px text-[0.65rem] rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:text-red-500 hover:border-red-500/30" onclick={(e) => { e.stopPropagation(); deleteReply(annotation.id, reply.id); }}>Delete</button>
                       </div>
                     </div>
                   {/each}
@@ -296,18 +306,19 @@
             {/if}
 
             {#if replyingTo === annotation.id}
-              <div class="reply-input" data-annotation-id={annotation.id} onclick={(e) => e.stopPropagation()}>
+              <div class="reply-input mt-2 pl-3 border-l-2 border-primary-500/30" data-annotation-id={annotation.id} onclick={(e) => e.stopPropagation()}>
                 <textarea
                   bind:value={replyText}
                   placeholder="Write a reply..."
+                  class="w-full min-h-[50px] p-1.5 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded text-xs text-gray-900 dark:text-gray-100 resize-y mb-1.5 focus:outline-none focus:border-primary-500"
                   onkeydown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitReply(annotation.id); }
                     if (e.key === 'Escape') cancelReply();
                   }}
                 ></textarea>
-                <div class="edit-actions">
-                  <button class="btn-save" onclick={() => submitReply(annotation.id)}>Reply</button>
-                  <button class="btn-cancel" onclick={cancelReply}>Cancel</button>
+                <div class="flex gap-1.5">
+                  <button class="px-2 py-0.5 text-xs rounded border border-primary-500/30 bg-transparent text-primary-500 cursor-pointer hover:bg-primary-500/10" onclick={() => submitReply(annotation.id)}>Reply</button>
+                  <button class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700" onclick={cancelReply}>Cancel</button>
                 </div>
               </div>
             {/if}
@@ -317,441 +328,3 @@
     {/if}
   </div>
 {/if}
-
-<style>
-  .sidebar {
-    position: relative;
-    background: #13132a;
-    border-left: 1px solid #2a2a4a;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .resize-handle {
-    position: absolute;
-    top: 0;
-    left: -3px;
-    width: 6px;
-    height: 100%;
-    cursor: col-resize;
-    z-index: 10;
-  }
-
-  .resize-handle:hover {
-    background: #646cff55;
-  }
-
-  .sidebar-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid #2a2a4a;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .sidebar-header h3 {
-    margin: 0;
-    font-size: 0.95rem;
-    color: #ddd;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .tabs {
-    display: flex;
-    border-bottom: 1px solid #2a2a4a;
-  }
-
-  .tab {
-    flex: 1;
-    padding: 8px 12px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #666;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-
-  .tab:hover {
-    color: #aaa;
-    background: #1a1a35;
-  }
-
-  .tab.active {
-    color: #ddd;
-    border-bottom-color: #646cff;
-  }
-
-  .tab-count {
-    font-size: 0.7rem;
-    background: #2a2a4a;
-    color: #aaa;
-    border-radius: 8px;
-    padding: 0 6px;
-    min-width: 18px;
-    text-align: center;
-  }
-
-  .tab.active .tab-count {
-    background: #646cff33;
-    color: #646cff;
-  }
-
-  .collapse-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border-radius: 4px;
-    border: 1px solid #333;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .collapse-btn:hover {
-    background: #2a2a4a;
-    color: #ccc;
-  }
-
-  .expand-btn {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 8px 6px;
-    border: none;
-    border-left: 1px solid #2a2a4a;
-    background: #13132a;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .expand-btn:hover {
-    background: #1a1a35;
-    color: #ccc;
-  }
-
-  .badge {
-    font-size: 0.7rem;
-    background: #646cff;
-    color: white;
-    border-radius: 8px;
-    padding: 1px 5px;
-    min-width: 16px;
-    text-align: center;
-  }
-
-  .empty {
-    padding: 24px 16px;
-    text-align: center;
-    color: #666;
-  }
-
-  .empty p {
-    margin: 4px 0;
-  }
-
-  .hint {
-    font-size: 0.8rem;
-    color: #555;
-  }
-
-  .comment-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .comment-card {
-    padding: 10px 12px;
-    border-radius: 6px;
-    background: #1a1a35;
-    border: 1px solid #2a2a4a;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-
-  .comment-card:hover {
-    border-color: #444;
-  }
-
-  .comment-card.active {
-    border-color: #646cff;
-  }
-
-  .comment-meta {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-
-  .comment-meta .time {
-    margin-right: auto;
-  }
-
-  .priority-badge-wrapper {
-    margin-left: auto;
-    position: relative;
-  }
-
-  .priority-badge {
-    padding: 1px 6px;
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    border-radius: 3px;
-    border: 1px solid;
-    cursor: pointer;
-    background: transparent;
-    white-space: nowrap;
-    line-height: 1.4;
-    display: inline-block;
-  }
-
-  .priority-badge:hover {
-    filter: brightness(1.3);
-  }
-
-  .priority-dropdown {
-    position: absolute;
-    right: 0;
-    top: 100%;
-    margin-top: 2px;
-    background: #1a1a2e;
-    border: 1px solid #444;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-    z-index: 20;
-    overflow: hidden;
-  }
-
-  .priority-dropdown button {
-    display: block;
-    width: 100%;
-    padding: 4px 12px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    white-space: nowrap;
-    text-align: left;
-  }
-
-  .priority-dropdown button:hover {
-    background: #2a2a4a;
-  }
-
-  .priority-dropdown .opt-high { color: #f87171; }
-  .priority-dropdown .opt-medium { color: #fbbf24; }
-  .priority-dropdown .opt-low { color: #60a5fa; }
-  .priority-dropdown .opt-none { color: #666; }
-
-  .priority-high {
-    color: #f87171;
-    border-color: #f8717144;
-    background: #f8717115;
-  }
-
-  .priority-medium {
-    color: #fbbf24;
-    border-color: #fbbf2444;
-    background: #fbbf2415;
-  }
-
-  .priority-low {
-    color: #60a5fa;
-    border-color: #60a5fa44;
-    background: #60a5fa15;
-  }
-
-  .priority-none {
-    color: #666;
-    border-color: #333;
-  }
-
-  .author {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #aaa;
-  }
-
-  .time {
-    font-size: 0.75rem;
-    color: #555;
-  }
-
-  .quoted-text {
-    margin: 0 0 8px 0;
-    padding: 4px 8px;
-    border-left: 2px solid #646cff;
-    font-size: 0.8rem;
-    color: #999;
-    font-style: italic;
-  }
-
-  .comment-text {
-    margin: 0 0 8px 0;
-    font-size: 0.85rem;
-    color: #ccc;
-    line-height: 1.4;
-  }
-
-  .edit-input {
-    width: 100%;
-    min-height: 60px;
-    padding: 6px 8px;
-    background: #0d0d1a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #ddd;
-    font-size: 0.85rem;
-    font-family: inherit;
-    resize: vertical;
-    margin-bottom: 6px;
-  }
-
-  .edit-actions {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-
-  .comment-actions {
-    display: flex;
-    gap: 6px;
-  }
-
-  .comment-actions button, .edit-actions button {
-    padding: 2px 8px;
-    font-size: 0.75rem;
-    border-radius: 3px;
-    border: 1px solid #333;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .comment-actions button:hover, .edit-actions button:hover {
-    background: #2a2a4a;
-    color: #ccc;
-  }
-
-  .btn-resolve.is-resolved {
-    color: #4ade80;
-    border-color: #4ade8044;
-  }
-
-  .btn-save {
-    color: #646cff !important;
-    border-color: #646cff44 !important;
-  }
-
-  .btn-delete:hover {
-    color: #f87171 !important;
-    border-color: #f8717144 !important;
-  }
-
-  /* Thread toggle */
-  .thread-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 8px;
-    padding: 2px 0;
-    border: none;
-    background: transparent;
-    color: #646cff;
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-
-  .thread-toggle:hover {
-    color: #535bf2;
-  }
-
-  .thread-toggle svg {
-    transition: transform 0.15s;
-  }
-
-  .thread-toggle :global(.chevron-expanded) {
-    transform: rotate(90deg);
-  }
-
-  /* Replies */
-  .replies {
-    margin-top: 6px;
-    padding-left: 12px;
-    border-left: 2px solid #2a2a4a;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .reply-card {
-    padding: 8px 10px;
-    border-radius: 4px;
-    background: #141428;
-    border: 1px solid #222244;
-  }
-
-  .reply-card.resolved {
-    opacity: 0.5;
-  }
-
-  .reply-card .comment-text {
-    font-size: 0.8rem;
-  }
-
-  .reply-card .comment-actions button {
-    font-size: 0.7rem;
-    padding: 1px 6px;
-  }
-
-  /* Reply input */
-  .reply-input {
-    margin-top: 8px;
-    padding-left: 12px;
-    border-left: 2px solid #646cff44;
-  }
-
-  .reply-input textarea {
-    width: 100%;
-    min-height: 50px;
-    padding: 6px 8px;
-    background: #0d0d1a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #ddd;
-    font-size: 0.8rem;
-    font-family: inherit;
-    resize: vertical;
-    margin-bottom: 6px;
-  }
-
-  .reply-input textarea:focus {
-    outline: none;
-    border-color: #646cff;
-  }
-</style>

@@ -1,4 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { getMockMode } from './mockMode.svelte.js';
+import { mockSendMessage, mockSendSummary } from './mock.js';
 
 const SYSTEM_PROMPT = `You are a helpful assistant analyzing the following document. Answer questions about its content concisely.`;
 
@@ -13,6 +15,16 @@ const SYSTEM_PROMPT = `You are a helpful assistant analyzing the following docum
  * @returns {Promise<string>} Full response text
  */
 export async function sendMessage({ apiKey, model, messages, documentText, onChunk }) {
+  if (getMockMode()) {
+    // Detect summary requests and use the summary mock
+    const lastMsg = messages?.[messages.length - 1];
+    const isSummary = lastMsg?.content?.toLowerCase().includes('summary');
+    if (isSummary) {
+      return mockSendSummary({ model, onChunk });
+    }
+    return mockSendMessage({ model, onChunk });
+  }
+
   const client = new Anthropic({
     apiKey,
     dangerouslyAllowBrowser: true,

@@ -31,3 +31,12 @@ export async function extractAndStore(data, fileType) {
   extractedText = await adapter.extract(data);
   return extractedText;
 }
+
+export function getDocumentContextSnapshot() {
+  if (!extractedText) return null;
+  return JSON.parse(JSON.stringify(extractedText));
+}
+
+export function restoreDocumentContextSnapshot(snapshot) {
+  extractedText = snapshot || null;
+}

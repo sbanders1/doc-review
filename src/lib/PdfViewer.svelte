@@ -3,6 +3,7 @@
   import * as pdfjsLib from 'pdfjs-dist';
   import { TextLayer } from 'pdfjs-dist';
   import 'pdfjs-dist/web/pdf_viewer.css';
+  import { Plus, Minus } from 'lucide-svelte';
   import {
     getAnnotations,
     getActiveAnnotationId,
@@ -19,18 +20,15 @@
   let pdfDoc = $state(null);
   let rendering = $state(false);
 
-  // Selection popover state
   let popover = $state({ visible: false, x: 0, y: 0 });
   let commentInput = $state({ visible: false, x: 0, y: 0, text: '', selectionRects: [], pageNumber: 0 });
   let commentText = $state('');
 
-  // Track page wrappers for highlight rendering
   let pageWrappers = $state([]);
 
-  // Debug sliders for text layer calibration
   let dbgScaleX = $state(1.175);
   let dbgTranslateX = $state(-36.5);
-  let dbgShowPanel = $state(false); // set to true to show calibration sliders
+  let dbgShowPanel = $state(false);
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
     'pdfjs-dist/build/pdf.worker.mjs',
@@ -50,7 +48,6 @@
   });
 
   function handleAnnotationClick(e) {
-    // Ignore clicks on the sidebar (comments handle their own activation)
     if (e.target.closest('.sidebar') || e.target.closest('.comment-card') || e.target.closest('.expand-btn')) return;
 
     if (!container) {
@@ -58,9 +55,6 @@
       return;
     }
 
-    // Direct hit: check if the click landed on (or inside) a highlight-rect element.
-    // This works even if the element was just recreated, because we search
-    // the live DOM at the click point as a fallback below.
     const highlightEl = e.target.closest('.highlight-rect');
     if (highlightEl && highlightEl.dataset.annotationId) {
       const id = highlightEl.dataset.annotationId;
@@ -69,17 +63,11 @@
       return;
     }
 
-    // The click target may be a text-layer span or canvas.  Find which
-    // page-wrapper we are in so we can do coordinate-based hit testing.
     const wrapper = e.target.closest('.page-wrapper');
     if (!wrapper || !container.contains(wrapper)) {
-      // Also try to find the wrapper from the live DOM at the click point,
-      // in case the original target was detached by a reactive re-render
-      // between mousedown and click.
       const elAtPoint = document.elementFromPoint(e.clientX, e.clientY);
       const wrapperAtPoint = elAtPoint?.closest('.page-wrapper');
 
-      // Check if the element at the click point is a highlight-rect
       const highlightAtPoint = elAtPoint?.closest('.highlight-rect');
       if (highlightAtPoint && highlightAtPoint.dataset.annotationId) {
         const id = highlightAtPoint.dataset.annotationId;
@@ -92,7 +80,6 @@
         setActiveAnnotationId(null);
         return;
       }
-      // Fall through to coordinate hit-testing with the wrapper found at the click point
       return handleAnnotationHitTest(e, wrapperAtPoint);
     }
 
@@ -123,12 +110,10 @@
       }
     }
 
-    // Clicked on the page but not on any annotation — deactivate
     setActiveAnnotationId(null);
   }
 
   function handleMouseDown(e) {
-    // If clicking outside popover/comment input, close them
     if (!e.target.closest('.selection-popover') && !e.target.closest('.comment-input-popover')) {
       if (popover.visible) {
         popover = { visible: false, x: 0, y: 0 };
@@ -151,7 +136,6 @@
       return;
     }
 
-    // Check if selection is within our pdf container
     const range = selection.getRangeAt(0);
     if (!container || !container.contains(range.commonAncestorContainer)) {
       return;
@@ -175,7 +159,6 @@
     const selectedText = selection.toString().trim();
     if (!selectedText) return;
 
-    // Find which page wrapper contains this selection
     let pageNumber = 0;
     let pageWrapper = null;
     for (let i = 0; i < pageWrappers.length; i++) {
@@ -187,7 +170,6 @@
     }
     if (!pageWrapper) return;
 
-    // Get selection rects relative to the page wrapper
     const pageRect = pageWrapper.getBoundingClientRect();
     const clientRects = range.getClientRects();
     const rects = [];
@@ -215,7 +197,6 @@
     commentText = '';
     popover = { visible: false, x: 0, y: 0 };
 
-    // Focus the textarea after it renders
     tick().then(() => {
       const ta = container.parentElement.querySelector('.comment-input-popover textarea');
       if (ta) ta.focus();
@@ -225,7 +206,6 @@
   function submitComment() {
     if (!commentText.trim()) return;
 
-    // Store rects as ratios of page dimensions for scale independence
     const pageWrapper = pageWrappers[commentInput.pageNumber - 1];
     const pageWidth = pageWrapper.offsetWidth;
     const pageHeight = pageWrapper.offsetHeight;
@@ -278,13 +258,11 @@
       wrapper.style.height = `${viewport.height}px`;
       wrapper.dataset.pageNumber = num;
 
-      // Canvas layer
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       wrapper.appendChild(canvas);
 
-      // Text layer
       const textLayerDiv = document.createElement('div');
       textLayerDiv.className = 'textLayer';
       textLayerDiv.style.setProperty('--scale-factor', scale * (globalThis.devicePixelRatio || 1));
@@ -292,13 +270,11 @@
       textLayerDiv.style.transform = `scaleX(${dbgScaleX}) translateX(${dbgTranslateX}px)`;
       wrapper.appendChild(textLayerDiv);
 
-      // Highlight overlay container
       const highlightLayer = document.createElement('div');
       highlightLayer.className = 'highlight-layer';
       highlightLayer.dataset.page = num;
       wrapper.appendChild(highlightLayer);
 
-      // Page label
       const pageLabel = document.createElement('div');
       pageLabel.className = 'page-label';
       pageLabel.textContent = `Page ${num} of ${pdfDoc.numPages}`;
@@ -307,11 +283,9 @@
       container.appendChild(wrapper);
       pageWrappers[num - 1] = wrapper;
 
-      // Render canvas
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport }).promise;
 
-      // Render text layer
       const textContent = await page.getTextContent();
       const textLayer = new TextLayer({
         textContentSource: textContent,
@@ -338,7 +312,6 @@
     renderAllPages();
   }
 
-  // Reactive highlight rendering
   const annotations = $derived(getAnnotations());
   const activeId = $derived(getActiveAnnotationId());
 
@@ -349,7 +322,6 @@
     renderHighlights();
   });
 
-  // Reactively update text layer transforms when debug sliders change
   $effect(() => {
     const sx = dbgScaleX;
     const tx = dbgTranslateX;
@@ -358,8 +330,28 @@
     });
   });
 
+  export function getViewerSnapshot() {
+    return {
+      scale,
+      scrollTop: scrollArea?.scrollTop ?? 0,
+      scrollLeft: scrollArea?.scrollLeft ?? 0,
+    };
+  }
+
+  export async function restoreViewerSnapshot(snapshot) {
+    if (!snapshot) return;
+    if (snapshot.scale && snapshot.scale !== scale) {
+      scale = snapshot.scale;
+      await renderAllPages();
+    }
+    await tick();
+    if (scrollArea) {
+      scrollArea.scrollTop = snapshot.scrollTop ?? 0;
+      scrollArea.scrollLeft = snapshot.scrollLeft ?? 0;
+    }
+  }
+
   export function scrollToAnnotation(id) {
-    // Defer to next microtask so reactive state (activeId) has updated
     tick().then(() => {
       renderHighlights();
       const el = scrollArea?.querySelector(`[data-annotation-id="${id}"]`);
@@ -368,7 +360,6 @@
         return;
       }
 
-      // No highlight rects — fall back to scrolling to the annotation's page
       const annotation = annotations.find((a) => a.id === id);
       if (annotation && annotation.pageNumber > 0) {
         const pageWrapper = pageWrappers[annotation.pageNumber - 1];
@@ -392,7 +383,6 @@
       const pageWidth = wrapper.offsetWidth;
       const pageHeight = wrapper.offsetHeight;
 
-      // Render pending highlight while comment input is open
       if (commentInput.visible && commentInput.pageNumber === pageNum) {
         for (const rect of commentInput.selectionRects) {
           const el = document.createElement('div');
@@ -405,7 +395,6 @@
         }
       }
 
-      // Render saved annotations
       const pageAnnotations = annotations.filter((a) => a.pageNumber === pageNum);
 
       for (const annotation of pageAnnotations) {
@@ -426,123 +415,77 @@
   }
 </script>
 
-<div class="pdf-controls">
-  <button onclick={zoomOut}>-</button>
-  <span class="zoom-level">{Math.round(scale * 100)}%</span>
-  <button onclick={zoomIn}>+</button>
-  <span class="page-info">{pageCount} page{pageCount !== 1 ? 's' : ''}</span>
-  <!-- Debug toggle: uncomment to show calibration panel -->
-  <!--<button onclick={() => dbgShowPanel = !dbgShowPanel} class="dbg-toggle">
-    {dbgShowPanel ? 'Hide' : 'Debug'}
-  </button>-->
+<div class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+  <button
+    class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+    onclick={zoomOut}
+  >
+    <Minus size={16} />
+  </button>
+  <span class="text-sm text-gray-500 dark:text-gray-400 min-w-[40px] text-center">{Math.round(scale * 100)}%</span>
+  <button
+    class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+    onclick={zoomIn}
+  >
+    <Plus size={16} />
+  </button>
+  <span class="text-sm text-gray-400 dark:text-gray-500 ml-auto">{pageCount} page{pageCount !== 1 ? 's' : ''}</span>
 </div>
 {#if dbgShowPanel}
-  <div class="dbg-panel">
-    <label>
-      scaleX: <strong>{dbgScaleX.toFixed(3)}</strong>
-      <input type="range" min="0.8" max="1.3" step="0.005" bind:value={dbgScaleX} />
+  <div class="flex items-center gap-4 px-4 py-1.5 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+    <label class="flex items-center gap-1.5 text-xs text-gray-500 whitespace-nowrap">
+      scaleX: <strong class="min-w-[50px] text-right text-gray-900 dark:text-gray-100 font-mono">{dbgScaleX.toFixed(3)}</strong>
+      <input type="range" min="0.8" max="1.3" step="0.005" bind:value={dbgScaleX} class="w-[120px] accent-primary-500" />
     </label>
-    <label>
-      translateX: <strong>{dbgTranslateX.toFixed(1)}px</strong>
-      <input type="range" min="-100" max="100" step="0.5" bind:value={dbgTranslateX} />
+    <label class="flex items-center gap-1.5 text-xs text-gray-500 whitespace-nowrap">
+      translateX: <strong class="min-w-[50px] text-right text-gray-900 dark:text-gray-100 font-mono">{dbgTranslateX.toFixed(1)}px</strong>
+      <input type="range" min="-100" max="100" step="0.5" bind:value={dbgTranslateX} class="w-[120px] accent-primary-500" />
     </label>
-    <button onclick={() => { dbgScaleX = 1.175; dbgTranslateX = -36.5; }}>Reset</button>
+    <button class="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-500 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700" onclick={() => { dbgScaleX = 1.175; dbgTranslateX = -36.5; }}>Reset</button>
   </div>
 {/if}
-<div class="pdf-scroll-area" bind:this={scrollArea}>
-  <div class="pdf-container" bind:this={container}></div>
+<div class="pdf-scroll-area flex-1 relative overflow-auto bg-gray-100 dark:bg-gray-950" bind:this={scrollArea}>
+  <div class="pdf-container flex flex-col items-center gap-4 p-4 min-h-full" bind:this={container}></div>
 
   {#if popover.visible}
     <div
-      class="selection-popover"
-      style="left: {popover.x}px; top: {popover.y}px;"
+      class="selection-popover absolute z-10"
+      style="left: {popover.x}px; top: {popover.y}px; transform: translateX(-50%) translateY(-100%);"
     >
-      <button onclick={startComment}>Add Comment</button>
+      <button
+        class="px-3.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm cursor-pointer whitespace-nowrap shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-primary-500 transition-colors"
+        onclick={startComment}
+      >Add Comment</button>
     </div>
   {/if}
 
   {#if commentInput.visible}
     <div
-      class="comment-input-popover"
+      class="comment-input-popover absolute z-10 w-[280px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl p-2.5"
       style="left: {commentInput.x}px; top: {commentInput.y}px;"
     >
-      <div class="comment-input-header">Comment on selection</div>
+      <div class="text-xs text-gray-400 dark:text-gray-500 mb-2">Comment on selection</div>
       <textarea
         bind:value={commentText}
         placeholder="Write a comment..."
+        class="w-full min-h-[70px] p-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-900 dark:text-gray-100 resize-y mb-2 focus:outline-none focus:border-primary-500"
         onkeydown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); }
           if (e.key === 'Escape') cancelComment();
         }}
       ></textarea>
-      <div class="comment-input-actions">
-        <button class="btn-submit" onclick={submitComment}>Comment</button>
-        <button class="btn-cancel" onclick={cancelComment}>Cancel</button>
+      <div class="flex gap-1.5 justify-end">
+        <button class="px-3 py-1 rounded-md bg-primary-500 hover:bg-primary-600 text-white text-xs border-none cursor-pointer transition-colors" onclick={submitComment}>Comment</button>
+        <button class="px-3 py-1 rounded-md border border-gray-200 dark:border-gray-600 bg-transparent text-gray-500 dark:text-gray-400 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick={cancelComment}>Cancel</button>
       </div>
     </div>
   {/if}
 </div>
 
 <style>
-  .pdf-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: #1a1a2e;
-    border-bottom: 1px solid #333;
-  }
-
-  .pdf-controls button {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    border: 1px solid #555;
-    background: transparent;
-    color: #ccc;
-    cursor: pointer;
-    font-size: 1.1rem;
-    padding: 0;
-  }
-
-  .pdf-controls button:hover {
-    background: #333;
-  }
-
-  .zoom-level {
-    font-size: 0.85rem;
-    color: #aaa;
-    min-width: 40px;
-    text-align: center;
-  }
-
-  .page-info {
-    font-size: 0.85rem;
-    color: #666;
-    margin-left: auto;
-  }
-
-  .pdf-scroll-area {
-    flex: 1;
-    position: relative;
-    overflow: auto;
-    background: #0d0d1a;
-  }
-
-  .pdf-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    padding: 16px;
-    min-height: 100%;
-  }
-
+  /* These :global() styles target dynamically-created DOM from pdfjs and renderHighlights() */
   .pdf-container :global(.page-wrapper) {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
     background: white;
     overflow: hidden;
   }
@@ -555,9 +498,14 @@
     text-align: center;
     padding: 4px;
     font-size: 0.75rem;
-    color: #666;
-    background: #f0f0f0;
+    color: #6b7280;
+    background: #f3f4f6;
     position: relative;
+  }
+
+  :global(.dark) .pdf-container :global(.page-label) {
+    color: #6b7280;
+    background: #1f2937;
   }
 
   .pdf-container :global(.textLayer) {
@@ -575,7 +523,6 @@
     background: rgba(0, 100, 255, 0.3);
   }
 
-  /* Highlight overlay layer */
   .pdf-container :global(.highlight-layer) {
     position: absolute;
     top: 0;
@@ -610,157 +557,5 @@
     background: transparent;
     border-bottom-color: transparent;
     pointer-events: none;
-  }
-
-  /* Selection popover */
-  .selection-popover {
-    position: absolute;
-    transform: translateX(-50%) translateY(-100%);
-    z-index: 10;
-  }
-
-  .selection-popover button {
-    padding: 6px 14px;
-    border-radius: 6px;
-    border: 1px solid #555;
-    background: #1a1a2e;
-    color: #ddd;
-    font-size: 0.85rem;
-    cursor: pointer;
-    white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  }
-
-  .selection-popover button:hover {
-    background: #2a2a4a;
-    border-color: #646cff;
-  }
-
-  /* Comment input popover */
-  .comment-input-popover {
-    position: absolute;
-    z-index: 10;
-    width: 280px;
-    background: #1a1a2e;
-    border: 1px solid #444;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    padding: 10px;
-  }
-
-  .comment-input-header {
-    font-size: 0.8rem;
-    color: #888;
-    margin-bottom: 8px;
-  }
-
-  .comment-input-popover textarea {
-    width: 100%;
-    min-height: 70px;
-    padding: 8px;
-    background: #0d0d1a;
-    border: 1px solid #333;
-    border-radius: 4px;
-    color: #ddd;
-    font-size: 0.85rem;
-    font-family: inherit;
-    resize: vertical;
-    margin-bottom: 8px;
-  }
-
-  .comment-input-popover textarea:focus {
-    outline: none;
-    border-color: #646cff;
-  }
-
-  .comment-input-actions {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
-  }
-
-  .comment-input-actions button {
-    padding: 4px 12px;
-    border-radius: 4px;
-    border: 1px solid #444;
-    background: transparent;
-    color: #ccc;
-    cursor: pointer;
-    font-size: 0.8rem;
-  }
-
-  .btn-submit {
-    background: #646cff !important;
-    border-color: #646cff !important;
-    color: white !important;
-  }
-
-  .btn-submit:hover {
-    background: #535bf2 !important;
-  }
-
-  .btn-cancel:hover {
-    background: #2a2a4a;
-  }
-
-  .dbg-toggle {
-    margin-left: 8px;
-    padding: 2px 8px;
-    font-size: 0.75rem;
-    border-radius: 3px;
-    border: 1px solid #555;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .dbg-toggle:hover {
-    background: #333;
-    color: #ccc;
-  }
-
-  .dbg-panel {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 6px 16px;
-    background: #12121f;
-    border-bottom: 1px solid #333;
-  }
-
-  .dbg-panel label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.75rem;
-    color: #aaa;
-    white-space: nowrap;
-  }
-
-  .dbg-panel label strong {
-    min-width: 50px;
-    text-align: right;
-    color: #ddd;
-    font-family: monospace;
-  }
-
-  .dbg-panel input[type="range"] {
-    width: 120px;
-    accent-color: #646cff;
-  }
-
-  .dbg-panel button {
-    padding: 2px 8px;
-    font-size: 0.75rem;
-    border-radius: 3px;
-    border: 1px solid #555;
-    background: transparent;
-    color: #888;
-    cursor: pointer;
-  }
-
-  .dbg-panel button:hover {
-    background: #333;
-    color: #ccc;
   }
 </style>

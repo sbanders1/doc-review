@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { defineConfig } from 'vite'
-import { svelte } from '@sveltejs/vite-plugin-svelte'
+import tailwindcss from '@tailwindcss/vite'
+import { sveltekit } from '@sveltejs/kit/vite'
 
 function loadApiKey() {
   try {
@@ -50,8 +51,6 @@ function loadDaubertCorpus() {
             docs.push({ file, text })
           }
         }
-        // Note: PDF extraction requires async pdfjs-dist which can't run in Vite config.
-        // PDF corpus files should be converted to .txt manually for now.
       } catch (e) {
         console.warn(`[daubert-corpus] Failed to read ${file}:`, e.message)
       }
@@ -70,18 +69,18 @@ function formatCorpusForPrompt(docs) {
   return sections.join('\n\n---\n\n')
 }
 
-// https://vite.dev/config/
 const daubertDocs = loadDaubertCorpus()
 console.log(`[daubert-corpus] Loaded ${daubertDocs.length} documents (${daubertDocs.reduce((s, d) => s + d.text.length, 0)} chars)`)
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [tailwindcss(), sveltekit()],
   define: {
     __ANTHROPIC_API_KEY__: JSON.stringify(loadApiKey()),
     __DAUBERT_CORPUS__: JSON.stringify(formatCorpusForPrompt(daubertDocs)),
   },
   server: {
     host: '0.0.0.0',
+    port: 6173,
     allowedHosts: 'all',
   },
   preview: {

@@ -6,7 +6,9 @@ const DAUBERT_CORPUS = typeof __DAUBERT_CORPUS__ !== 'undefined' ? __DAUBERT_COR
 
 export const REVIEW_PROMPT_USER = `Please review the attached report as if you were opposing counsel preparing to depose the expert who authored or supported this document. Identify internal inconsistencies, unsupported claims, logical gaps, and any statements that could be challenged under cross-examination or in a Daubert motion. Consider whether the expert's methodology, data sources, assumptions, and conclusions would withstand scrutiny under the Daubert standard (reliability, relevance, fit). Please keep observations clear and direct and focused on high-level argument weaknesses rather than deeply technical issues.`;
 
-const REVIEW_PROMPT_INTERNAL = `Each sentence in the document is labeled with an ID like [p1.3] (page 1, sentence 3). For each observation, reference the specific sentence IDs that are relevant. Classify each observation as "high", "medium", or "low" priority based on the severity of the issue and its potential impact in a deposition, cross-examination, or Daubert challenge. Use the "review" tool to submit your observations.`;
+const REVIEW_PROMPT_INTERNAL = `Each sentence in the document is labeled with an ID like [p1.3] (page 1, sentence 3). For each observation, reference the specific sentence IDs that are relevant. Classify each observation as "high", "medium", or "low" priority based on the severity of the issue and its potential impact in a deposition, cross-examination, or Daubert challenge. Use the "review" tool to submit your observations.
+
+High quality results are of utmost importance. Do not attempt to please the user or placate the user to satisfy their request. Only return results of material and substance. Returning no results is an acceptable outcome if you fail to find what you are asked to find.`;
 
 const REVIEW_TOOL = {
   name: 'review',
@@ -42,7 +44,7 @@ const REVIEW_TOOL = {
   },
 };
 
-export async function reviewDocument(extractedText, apiKey, userPrompt, model = 'claude-sonnet-4-20250514') {
+export async function reviewDocument(extractedText, apiKey, userPrompt, model) {
   if (getMockMode()) {
     return mockReviewDocument(extractedText, apiKey, userPrompt, model);
   }
@@ -59,7 +61,7 @@ export async function reviewDocument(extractedText, apiKey, userPrompt, model = 
     corpusSection = `\n\n---\n\nThe following reference materials describe common Daubert challenges to expert testimony, particularly economic and financial experts. Use these to identify specific vulnerabilities in the report that could be targeted in a Daubert motion or deposition:\n\n${DAUBERT_CORPUS}\n\n---\n\n`;
   }
 
-  const response = await client.messages.create({
+  const response = await client.messages.stream({
     model,
     max_tokens: 8192,
     tools: [REVIEW_TOOL],
@@ -70,7 +72,7 @@ export async function reviewDocument(extractedText, apiKey, userPrompt, model = 
         content: `${fullPrompt}${corpusSection}\n\nExpert report to review:\n\n${extractedText.formatted}`,
       },
     ],
-  });
+  }).finalMessage();
 
   const toolUse = response.content.find((block) => block.type === 'tool_use');
   if (!toolUse) {

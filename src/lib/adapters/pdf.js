@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { findTextInSpans } from './findTextInSpans.js';
+import { splitSentences } from './splitSentences.js';
 
 if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -23,7 +24,7 @@ async function extract(data) {
       currentText += item.str;
     }
 
-    const sentences = currentText.split(/(?<=[.!?])\s+/).filter((s) => s.trim());
+    const sentences = splitSentences(currentText);
 
     for (let i = 0; i < sentences.length; i++) {
       const id = `p${p}.${i + 1}`;

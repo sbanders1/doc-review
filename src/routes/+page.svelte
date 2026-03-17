@@ -7,6 +7,8 @@
   import ChatSidebar from '$lib/ChatSidebar.svelte';
   import SessionSidebar from '$lib/SessionSidebar.svelte';
   import { addAnnotation, clearAnnotations, getAnnotations, getAnnotationsSnapshot, restoreAnnotationsSnapshot } from '$lib/annotations.svelte.js';
+  import { detectCitationsWithLLM } from '$lib/citationReview.js';
+  import { addCitationsBatch, clearCitations, getCitations, getCitationsSnapshot, restoreCitationsSnapshot } from '$lib/citations.svelte.js';
   import { extractAndStore, getExtractedText, getFormattedText, clearExtractedText, getDocumentContextSnapshot, restoreDocumentContextSnapshot } from '$lib/documentContext.svelte.js';
   import { getAdapter } from '$lib/adapters/index.js';
   import { reviewDocument, REVIEW_PROMPT_USER } from '$lib/review.js';
@@ -14,7 +16,8 @@
   import { getModel } from '$lib/model.svelte.js';
   import { getSession, putSession, deleteSessionFromDB } from '$lib/db.js';
   import { getSessions, getActiveSessionId, setActiveSessionId, loadSessionList, addSessionToList, removeSessionFromList, updateSessionMeta } from '$lib/session.svelte.js';
-  import { FileUp, X, Save } from 'lucide-svelte';
+  import { clearHistory } from '$lib/commandHistory.svelte.js';
+  import { FileUp, X } from 'lucide-svelte';
 
   let fileContent = $state(null);
   let fileName = $state(null);
@@ -22,7 +25,7 @@
   let dragging = $state(false);
   let uploadError = $state(null);
   let sidebarCollapsed = $state(false);
-  let chatCollapsed = $state(false);
+  let chatCollapsed = $state(true);
   let sessionsCollapsed = $state(false);
 
   // Review state
@@ -34,6 +37,12 @@
   let showPromptModal = $state(false);
   let promptPreview = $state('');
   let pendingApiKey = $state(null);
+
+  // Review result tracking
+  let lastReviewTimestamp = $state(null);
+  let lastReviewCritiques = $state(0);
+  let lastReviewCitations = $state(0);
+  let reviewResultToast = $state(null); // { critiques: N, citations: N }
 
   // Summary state
   let showSummary = $state(false);
@@ -92,16 +101,24 @@
       name: fileName,
       createdAt: existing?.createdAt ?? now,
       fileType,
-      fileContent: fileContent instanceof Uint8Array ? new Uint8Array(fileContent) : fileContent,
+      fileContent: fileContent instanceof Uint8Array
+        ? (fileContent.buffer.byteLength === 0
+          ? null  // Buffer detached by pdfjs — skip; the original is already persisted in IndexedDB
+          : new Uint8Array(fileContent))
+        : fileContent,
       lastModified: now,
       extractedText: getDocumentContextSnapshot(),
       ...getAnnotationsSnapshot(),
+      ...getCitationsSnapshot(),
       chatMessages: chatSnap?.messages || [],
       chatModel: chatSnap?.selectedModel || DEFAULT_MODEL,
       viewerScale: viewerSnap?.scale ?? 1,
       scrollTop: viewerSnap?.scrollTop ?? 0,
       scrollLeft: viewerSnap?.scrollLeft ?? 0,
       summaryText,
+      lastReviewTimestamp,
+      lastReviewCritiques,
+      lastReviewCitations,
     };
   }
 
@@ -110,49 +127,18 @@
     if (!id || !fileContent) return;
     try {
       const data = gatherSessionData();
+      // If fileContent was null (detached buffer), preserve the copy already in IndexedDB
+      if (data.fileContent === null) {
+        const existing = await getSession(id);
+        if (existing?.fileContent) {
+          data.fileContent = existing.fileContent;
+        }
+      }
       await putSession(data);
       updateSessionMeta(id, { lastModified: data.lastModified, name: data.name, fileType: data.fileType });
     } catch (e) {
       console.error('Failed to save session:', e);
     }
-  }
-
-  let saveFlash = $state(false);
-
-  async function handleManualSave() {
-    if (!fileContent) return;
-
-    // If no active session, create one first
-    if (!getActiveSessionId()) {
-      const id = uuid();
-      const now = Date.now();
-      const title = fileName || 'Untitled';
-      const sessionData = {
-        id,
-        name: title,
-        createdAt: now,
-        lastModified: now,
-        fileType,
-        fileContent: fileContent instanceof Uint8Array ? new Uint8Array(fileContent) : fileContent,
-        extractedText: getDocumentContextSnapshot(),
-        ...getAnnotationsSnapshot(),
-        chatMessages: chatSidebarRef?.getChatSnapshot()?.messages || [],
-        chatModel: chatSidebarRef?.getChatSnapshot()?.selectedModel || DEFAULT_MODEL,
-        viewerScale: viewerRef?.getViewerSnapshot()?.scale ?? 1,
-        scrollTop: viewerRef?.getViewerSnapshot()?.scrollTop ?? 0,
-        scrollLeft: viewerRef?.getViewerSnapshot()?.scrollLeft ?? 0,
-        summaryText,
-      };
-      await putSession(sessionData);
-      addSessionToList({ id, name: title, createdAt: now, lastModified: now, fileType });
-      setActiveSessionId(id);
-    } else {
-      await saveCurrentSession();
-    }
-
-    // Brief visual feedback
-    saveFlash = true;
-    setTimeout(() => saveFlash = false, 1500);
   }
 
   async function switchToSession(id) {
@@ -170,13 +156,24 @@
     fileName = session.name;
     fileType = session.fileType;
     summaryText = session.summaryText || '';
+    lastReviewTimestamp = session.lastReviewTimestamp || null;
+    lastReviewCritiques = session.lastReviewCritiques || 0;
+    lastReviewCitations = session.lastReviewCitations || 0;
+    reviewResultToast = null;
     reviewError = null;
     showSummary = false;
+
+    // Clear command history for the new session
+    clearHistory();
 
     // Restore global stores
     restoreAnnotationsSnapshot({
       annotations: session.annotations || [],
       activeAnnotationId: session.activeAnnotationId || null,
+    });
+    restoreCitationsSnapshot({
+      citations: session.citations || [],
+      activeCitationId: session.activeCitationId || null,
     });
     restoreDocumentContextSnapshot(session.extractedText || null);
 
@@ -195,12 +192,12 @@
     };
   }
 
-  // Restore pending snapshots when viewer/chat refs become available
+  // Restore pending snapshots when viewer/chat refs become available.
+  // For PDFs, this is handled in handlePdfReady (after rendering completes).
   $effect(() => {
-    if (viewerRef && pendingViewerSnapshot) {
+    if (viewerRef && pendingViewerSnapshot && fileType !== 'pdf') {
       const snapshot = pendingViewerSnapshot;
       pendingViewerSnapshot = null;
-      // Defer to allow viewer to fully render
       tick().then(() => {
         viewerRef?.restoreViewerSnapshot(snapshot);
       });
@@ -215,8 +212,18 @@
     }
   });
 
+  function handlePdfReady() {
+    // Restore pending viewer snapshot if any
+    if (pendingViewerSnapshot) {
+      const snapshot = pendingViewerSnapshot;
+      pendingViewerSnapshot = null;
+      viewerRef?.restoreViewerSnapshot(snapshot);
+    }
+  }
+
   async function handleNewSession() {
     await saveCurrentSession();
+    clearHistory();
     // Clear state to show drop zone
     fileContent = null;
     fileName = null;
@@ -224,8 +231,10 @@
     summaryText = '';
     clearExtractedText();
     clearAnnotations();
+    clearCitations();
     setActiveSessionId(null);
     reviewError = null;
+    reviewResultToast = null;
   }
 
   async function handleDeleteSession(id) {
@@ -239,11 +248,68 @@
       summaryText = '';
       clearExtractedText();
       clearAnnotations();
+      clearCitations();
       // Load next session if available
       const list = getSessions();
       if (list.length > 0) {
         await switchToSession(list[0].id);
       }
+    }
+  }
+
+  function positionAndStoreCitations(llmCitations) {
+    const extractedText = getExtractedText();
+    if (!extractedText) return;
+    const adapter = getAdapter(fileType);
+    const pageWrappers = viewerRef?.getPageWrappers() || [];
+    const chunkMap = new Map(extractedText.chunks.map(c => [c.id, c]));
+    const citationsToAdd = [];
+
+    for (const det of llmCitations) {
+      if (!det.chunk_ids || !det.citation_ref) continue;
+      let allRects = [];
+      let primaryPage = 0;
+
+      for (const chunkId of det.chunk_ids) {
+        const chunk = chunkMap.get(chunkId);
+        if (!chunk) continue;
+        if (!primaryPage) primaryPage = chunk.pageNumber;
+        const pageWrapper = pageWrappers[chunk.pageNumber - 1];
+        if (!pageWrapper) continue;
+
+        // Try to find the exact citation ref text first, fall back to chunk text
+        const found = adapter?.findChunkRects(pageWrapper, det.citation_ref, { firstMatchOnly: true })
+          || adapter?.findChunkRects(pageWrapper, chunk.text, { firstMatchOnly: true });
+        if (!found || found.length === 0) continue;
+
+        const pageWidth = pageWrapper.offsetWidth;
+        const pageHeight = pageWrapper.offsetHeight;
+        const normalized = found.map(r => ({
+          left: r.left / pageWidth,
+          top: r.top / pageHeight,
+          width: r.width / pageWidth,
+          height: r.height / pageHeight,
+          pageNumber: chunk.pageNumber,
+        }));
+        allRects = allRects.concat(normalized);
+      }
+
+      if (allRects.length === 0) continue;
+
+      citationsToAdd.push({
+        pageNumber: primaryPage,
+        text: det.citation_ref,
+        rects: allRects,
+        citationRef: det.citation_ref,
+        citationType: det.citation_type,
+        comment: det.comment || '',
+        source: 'ai',
+        linkedTo: det.linked_to || null,
+      });
+    }
+
+    if (citationsToAdd.length > 0) {
+      addCitationsBatch(citationsToAdd);
     }
   }
 
@@ -253,6 +319,7 @@
     const _id = getActiveSessionId();
     // Touch reactive deps to trigger on changes
     const _annotations = getAnnotations();
+    const _citations = getCitations();
     const _summary = summaryText;
     if (!_id) return;
 
@@ -314,6 +381,8 @@
         extractedText: null,
         annotations: [],
         activeAnnotationId: null,
+        citations: [],
+        activeCitationId: null,
         chatMessages: [],
         chatModel: DEFAULT_MODEL,
         viewerScale: 1,
@@ -331,6 +400,7 @@
       summaryText = '';
       reviewError = null;
       clearAnnotations();
+      clearCitations();
       setActiveSessionId(id);
       pendingChatSnapshot = { messages: [], selectedModel: DEFAULT_MODEL };
 
@@ -376,16 +446,19 @@
   async function clearFile() {
     // Save before closing, then deactivate
     await saveCurrentSession();
+    clearHistory();
     fileContent = null;
     fileName = null;
     fileType = null;
     clearExtractedText();
     clearAnnotations();
+    clearCitations();
     summaryText = '';
     summaryLoading = false;
     showSummary = false;
     summaryError = null;
     reviewError = null;
+    reviewResultToast = null;
     setActiveSessionId(null);
   }
 
@@ -457,59 +530,96 @@
     reviewing = true;
     reviewError = null;
     sidebarCollapsed = false;
-
     try {
       const extractedText = getExtractedText();
       if (!extractedText) throw new Error('No document text available. Please re-upload the file.');
-      const adapter = getAdapter(fileType);
-      const observations = await reviewDocument(extractedText, apiKey, userPrompt, getModel());
+      const currentModel = getModel();
 
+      // Run review and citation detection in parallel
+      const [reviewResult, citationResult] = await Promise.allSettled([
+        reviewDocument(extractedText, apiKey, userPrompt, currentModel),
+        detectCitationsWithLLM(extractedText, apiKey, currentModel),
+      ]);
+
+      const adapter = getAdapter(fileType);
       const pageWrappers = viewerRef?.getPageWrappers() || [];
       const chunkMap = new Map(extractedText.chunks.map((c) => [c.id, c]));
-      for (const obs of observations) {
-        if (!obs.chunk_ids || !obs.comment) continue;
 
-        let allRects = [];
-        let primaryPage = 0;
-        const referencedTexts = [];
+      // Process review observations (existing annotation logic)
+      if (reviewResult.status === 'fulfilled') {
+        const observations = reviewResult.value;
+        for (const obs of observations) {
+          if (!obs.chunk_ids || !obs.comment) continue;
 
-        for (const chunkId of obs.chunk_ids) {
-          const chunk = chunkMap.get(chunkId);
-          if (!chunk) continue;
+          let allRects = [];
+          let primaryPage = 0;
+          const referencedTexts = [];
 
-          if (!primaryPage) primaryPage = chunk.pageNumber;
-          referencedTexts.push(chunk.text);
+          for (const chunkId of obs.chunk_ids) {
+            const chunk = chunkMap.get(chunkId);
+            if (!chunk) continue;
 
-          const pageWrapper = pageWrappers[chunk.pageNumber - 1];
-          if (!pageWrapper) continue;
+            if (!primaryPage) primaryPage = chunk.pageNumber;
+            referencedTexts.push(chunk.text);
 
-          const found = adapter?.findChunkRects(pageWrapper, chunk.text);
-          if (found) {
-            const pageWidth = pageWrapper.offsetWidth;
-            const pageHeight = pageWrapper.offsetHeight;
-            const normalized = found.map((r) => ({
-              left: r.left / pageWidth,
-              top: r.top / pageHeight,
-              width: r.width / pageWidth,
-              height: r.height / pageHeight,
-            }));
-            allRects = allRects.concat(normalized);
+            const pageWrapper = pageWrappers[chunk.pageNumber - 1];
+            if (!pageWrapper) continue;
+
+            const found = adapter?.findChunkRects(pageWrapper, chunk.text);
+            if (found) {
+              const pageWidth = pageWrapper.offsetWidth;
+              const pageHeight = pageWrapper.offsetHeight;
+              const normalized = found.map((r) => ({
+                left: r.left / pageWidth,
+                top: r.top / pageHeight,
+                width: r.width / pageWidth,
+                height: r.height / pageHeight,
+              }));
+              allRects = allRects.concat(normalized);
+            }
           }
+
+          const displayText = referencedTexts.join(' ... ');
+
+          addAnnotation({
+            pageNumber: primaryPage || 1,
+            text: displayText,
+            rects: allRects,
+            comment: obs.comment,
+            author: 'claude',
+            priority: obs.priority || null,
+          });
         }
-
-        const displayText = referencedTexts.join(' ... ');
-
-        addAnnotation({
-          pageNumber: primaryPage || 1,
-          text: displayText,
-          rects: allRects,
-          comment: obs.comment,
-          author: 'claude',
-          priority: obs.priority || null,
-        });
+      } else {
+        console.error('Review failed:', reviewResult.reason);
+        reviewError = reviewResult.reason.message;
       }
 
-      // Save after review completes
+      // Process citations
+      if (citationResult.status === 'fulfilled') {
+        positionAndStoreCitations(citationResult.value);
+      } else {
+        console.error('Citation detection failed:', citationResult.reason);
+        // Non-fatal: don't set reviewError, just log
+      }
+
+      // Count results
+      let critiqueCount = 0;
+      if (reviewResult.status === 'fulfilled') {
+        critiqueCount = reviewResult.value.filter(obs => obs.chunk_ids && obs.comment).length;
+      }
+      let citationCount = 0;
+      if (citationResult.status === 'fulfilled') {
+        citationCount = citationResult.value.filter(c => c.chunk_ids && c.citation_ref).length;
+      }
+
+      lastReviewTimestamp = Date.now();
+      lastReviewCritiques = critiqueCount;
+      lastReviewCitations = citationCount;
+
+      // Show persistent toast
+      reviewResultToast = { critiques: critiqueCount, citations: citationCount };
+
       saveCurrentSession();
     } catch (e) {
       console.error('Review error:', e);
@@ -537,7 +647,6 @@
   <div class="flex-1 flex flex-col min-w-0">
     {#if fileContent !== null}
       <div class="flex-1 flex overflow-hidden">
-        <ChatSidebar bind:collapsed={chatCollapsed} bind:this={chatSidebarRef} apiKey={getApiKey() || ''} />
         <div class="flex-1 flex flex-col overflow-hidden min-w-0">
           <div class="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
             <button
@@ -561,19 +670,12 @@
                 {/if}
               </button>
               <button
-                class="px-3 py-1.5 rounded-md border text-sm cursor-pointer transition-colors flex items-center gap-1.5
-                  {saveFlash
-                    ? 'border-primary-500 bg-primary-500/10 text-primary-600 dark:text-primary-400'
-                    : 'border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-                onclick={handleManualSave}
-              >
-                <Save size={14} />
-                {saveFlash ? 'Saved' : 'Save'}
-              </button>
-              <button
-                class="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                class="p-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 onclick={() => showCloseConfirm = true}
-              >Close</button>
+                title="Close document"
+              >
+                <X size={16} />
+              </button>
             </div>
           </div>
           {#if showSummary}
@@ -597,15 +699,16 @@
           {/if}
           {#key getActiveSessionId()}
             {#if fileType === 'pdf'}
-              <PdfViewer data={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
+              <PdfViewer data={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} onCitationClick={(id) => commentSidebarRef?.scrollToCitation(id)} onready={handlePdfReady} />
             {:else if fileType === 'docx'}
-              <DocxViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
+              <DocxViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} onCitationClick={(id) => commentSidebarRef?.scrollToCitation(id)} />
             {:else}
-              <TextViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} />
+              <TextViewer content={fileContent} bind:this={viewerRef} onAnnotationClick={(id) => commentSidebarRef?.scrollToComment(id)} onCitationClick={(id) => commentSidebarRef?.scrollToCitation(id)} />
             {/if}
           {/key}
+          <ChatSidebar bind:collapsed={chatCollapsed} bind:this={chatSidebarRef} apiKey={getApiKey() || ''} />
         </div>
-        <CommentSidebar bind:collapsed={sidebarCollapsed} bind:this={commentSidebarRef} onselect={(id) => viewerRef?.scrollToAnnotation(id)} />
+        <CommentSidebar bind:collapsed={sidebarCollapsed} bind:this={commentSidebarRef} onselect={(id) => viewerRef?.scrollToAnnotation(id)} oncitationselect={(id) => viewerRef?.scrollToAnnotation(id)} apiKey={getApiKey() || ''} />
       </div>
     {:else}
       <div
@@ -645,8 +748,8 @@
 
   <!-- API Key Modal -->
   {#if showApiKeyModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showApiKeyModal = false}>
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 w-[400px] max-w-[90vw] shadow-xl" onclick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 cursor-pointer" onclick={() => showApiKeyModal = false}>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 w-[400px] max-w-[90vw] shadow-xl cursor-default" onclick={(e) => e.stopPropagation()}>
         <h3 class="m-0 mb-2 text-gray-900 dark:text-gray-100 text-base font-semibold">Anthropic API Key</h3>
         <p class="m-0 mb-4 text-gray-500 dark:text-gray-400 text-sm leading-relaxed">Enter your API key to enable AI review. It will be stored in your browser's localStorage.</p>
         <input
@@ -666,10 +769,20 @@
 
   <!-- Prompt Modal -->
   {#if showPromptModal}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={cancelReview}>
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 w-[700px] max-w-[90vw] max-h-[80vh] flex flex-col shadow-xl" onclick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 cursor-pointer" onclick={cancelReview}>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 w-[700px] max-w-[90vw] max-h-[80vh] flex flex-col shadow-xl cursor-default" onclick={(e) => e.stopPropagation()}>
         <h3 class="m-0 mb-2 text-gray-900 dark:text-gray-100 text-base font-semibold">Review Prompt</h3>
         <p class="m-0 mb-4 text-gray-500 dark:text-gray-400 text-sm">Edit the prompt that will be sent to the Claude API:</p>
+        {#if lastReviewTimestamp}
+          <div class="mb-4 p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+            <p class="m-0 text-xs text-gray-500 dark:text-gray-400">
+              Previous review ({new Date(lastReviewTimestamp).toLocaleString()}) returned <strong class="text-gray-700 dark:text-gray-300">{lastReviewCritiques} critique{lastReviewCritiques !== 1 ? 's' : ''}</strong> and <strong class="text-gray-700 dark:text-gray-300">{lastReviewCitations} citation{lastReviewCitations !== 1 ? 's' : ''}</strong>.
+            </p>
+            {#if lastReviewCritiques === 0 && lastReviewCitations === 0}
+              <p class="m-0 mt-1.5 text-xs text-amber-600 dark:text-amber-400">No results were found. Consider modifying your prompt below and trying again.</p>
+            {/if}
+          </div>
+        {/if}
         <textarea
           class="w-full min-h-[150px] mb-4 p-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100 text-sm leading-relaxed resize-y focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
           bind:value={promptPreview}
@@ -685,8 +798,8 @@
 
   <!-- Close Confirm Modal -->
   {#if showCloseConfirm}
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showCloseConfirm = false}>
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 w-[400px] max-w-[90vw] shadow-xl" onclick={(e) => e.stopPropagation()}>
+    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 cursor-pointer" onclick={() => showCloseConfirm = false}>
+      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 w-[400px] max-w-[90vw] shadow-xl cursor-default" onclick={(e) => e.stopPropagation()}>
         <h3 class="m-0 mb-2 text-gray-900 dark:text-gray-100 text-base font-semibold">Close Document</h3>
         <p class="m-0 mb-4 text-gray-500 dark:text-gray-400 text-sm leading-relaxed">This will close the document view. The session will remain in the sidebar.</p>
         <div class="flex gap-2 justify-end">
@@ -694,6 +807,21 @@
           <button class="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" onclick={() => showCloseConfirm = false}>Cancel</button>
         </div>
       </div>
+    </div>
+  {/if}
+
+  {#if reviewResultToast}
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl text-sm">
+      <span class="text-xs">
+        Review complete: <strong>{reviewResultToast.critiques} critique{reviewResultToast.critiques !== 1 ? 's' : ''}</strong> and <strong>{reviewResultToast.citations} citation{reviewResultToast.citations !== 1 ? 's' : ''}</strong> found.
+        {#if reviewResultToast.critiques === 0 && reviewResultToast.citations === 0}
+          Try modifying your prompt.
+        {/if}
+      </span>
+      <button
+        class="px-2.5 py-1 text-xs font-semibold rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        onclick={() => reviewResultToast = null}
+      >Dismiss</button>
     </div>
   {/if}
 </main>

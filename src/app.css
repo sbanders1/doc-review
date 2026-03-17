@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+html {
+  font-size: 17px;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -97,8 +101,9 @@
 /* Highlight overlays */
 .highlight-rect {
   position: absolute;
-  background: rgba(255, 183, 0, 0.35);
-  border: 1px solid rgba(255, 183, 0, 0.7);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(255, 183, 0, 0.7);
   cursor: pointer;
   z-index: 3;
   transition: background 0.15s, border-color 0.15s;
@@ -106,39 +111,67 @@
 }
 
 .highlight-rect:hover {
-  background: rgba(255, 183, 0, 0.5);
-}
-
-.highlight-rect.active {
-  background: rgba(66, 153, 225, 0.3);
-  border-color: rgba(66, 153, 225, 0.7);
+  background: rgba(255, 183, 0, 0.15);
 }
 
 .highlight-rect.priority-high {
-  background: rgba(248, 113, 113, 0.3);
-  border: 1px solid rgba(248, 113, 113, 0.7);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(248, 113, 113, 0.7);
 }
-
 .highlight-rect.priority-high:hover {
-  background: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.15);
 }
 
 .highlight-rect.priority-medium {
-  background: rgba(251, 191, 36, 0.3);
-  border: 1px solid rgba(251, 191, 36, 0.7);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(251, 191, 36, 0.7);
 }
-
 .highlight-rect.priority-medium:hover {
-  background: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.15);
 }
 
 .highlight-rect.priority-low {
-  background: rgba(96, 165, 250, 0.3);
-  border: 1px solid rgba(96, 165, 250, 0.7);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(96, 165, 250, 0.7);
+}
+.highlight-rect.priority-low:hover {
+  background: rgba(96, 165, 250, 0.15);
 }
 
-.highlight-rect.priority-low:hover {
-  background: rgba(96, 165, 250, 0.45);
+/* Active highlight must override priority-specific styles */
+.highlight-rect.active,
+.highlight-rect.priority-high.active,
+.highlight-rect.priority-medium.active,
+.highlight-rect.priority-low.active {
+  background: rgba(66, 153, 225, 0.3);
+  border: 1px solid rgba(66, 153, 225, 0.7);
+}
+
+/* Citation highlights */
+.highlight-rect.citation-unresolved {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(248, 113, 113, 0.5);
+}
+.highlight-rect.citation-unresolved:hover {
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.highlight-rect.citation-resolved {
+  background: transparent;
+  border-color: transparent;
+  pointer-events: none;
+}
+
+/* Active citation must override status-specific styles */
+.highlight-rect.citation-active,
+.highlight-rect.citation-unresolved.citation-active,
+.highlight-rect.citation-resolved.citation-active {
+  background: rgba(66, 153, 225, 0.3);
+  border: 1px solid rgba(66, 153, 225, 0.7);
 }
 
 /* Highlight layer container */

@@ -1,10 +1,10 @@
 <script>
   import { tick } from 'svelte';
   import { marked } from 'marked';
-  import { ChevronLeft, ChevronRight, Send, Eraser } from 'lucide-svelte';
+  import { ChevronUp, ChevronDown, Send, MessageSquare } from 'lucide-svelte';
   import { sendMessage, DEFAULT_MODEL } from './chat.js';
   import { getFormattedText } from './documentContext.svelte.js';
-  import { getModel } from './model.svelte.js';
+  import { getModel, setModel } from './model.svelte.js';
 
   marked.setOptions({ breaks: true, gfm: true });
 
@@ -16,14 +16,14 @@
   let error = $state(null);
   let selectedModel = $derived(getModel());
   let messageListEl;
-  let sidebarWidth = $state(350);
+  let panelHeight = $state(320);
 
   function startResize(e) {
     e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
+    const startY = e.clientY;
+    const startHeight = panelHeight;
     function onMouseMove(e) {
-      sidebarWidth = Math.max(200, Math.min(800, startWidth + (e.clientX - startX)));
+      panelHeight = Math.max(150, Math.min(600, startHeight - (e.clientY - startY)));
     }
     function onMouseUp() {
       window.removeEventListener('mousemove', onMouseMove);
@@ -103,25 +103,33 @@
   export function restoreChatSnapshot(snapshot) {
     if (!snapshot) {
       messages = [];
-      selectedModel = DEFAULT_MODEL;
+      setModel(DEFAULT_MODEL);
       return;
     }
     messages = snapshot.messages || [];
-    selectedModel = snapshot.selectedModel || DEFAULT_MODEL;
+    if (snapshot.selectedModel) {
+      setModel(snapshot.selectedModel);
+    }
   }
 </script>
 
 {#if collapsed}
   <button
-    class="flex flex-col items-center gap-1 py-2 px-1.5 border-none border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-400 dark:text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+    class="flex items-center gap-2 w-full px-4 py-3 border-none border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-400 dark:text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors text-sm"
     onclick={() => collapsed = false}
     title="Show chat"
   >
-    <ChevronRight size={18} />
+    <MessageSquare size={14} />
+    <span>Chat with AI</span>
+    <ChevronUp size={16} class="ml-auto" />
   </button>
 {:else}
-  <div class="relative bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden" style="width:{sidebarWidth}px;min-width:{sidebarWidth}px">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+  <div class="relative w-full bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden" style="height:{panelHeight}px;min-height:{panelHeight}px">
+    <!-- Resize handle at top -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="absolute top-0 left-0 w-full h-[6px] cursor-row-resize z-10 hover:bg-primary-500/30" onmousedown={startResize}></div>
+
+    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700">
       <h3 class="m-0 text-sm font-semibold text-gray-900 dark:text-gray-100">Chat</h3>
       <div class="flex items-center gap-2">
         <button
@@ -134,7 +142,7 @@
           onclick={() => collapsed = true}
           title="Hide chat"
         >
-          <ChevronLeft size={16} />
+          <ChevronDown size={16} />
         </button>
       </div>
     </div>
@@ -189,7 +197,5 @@
         </button>
       </div>
     </div>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="absolute top-0 -right-[3px] w-[6px] h-full cursor-col-resize z-10 hover:bg-primary-500/30" onmousedown={startResize}></div>
   </div>
 {/if}

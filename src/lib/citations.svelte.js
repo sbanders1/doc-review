@@ -26,29 +26,63 @@ export function setActiveCitationId(id) {
  * @param {string} opts.text - The cited text as it appears in the document
  * @param {Array} opts.rects - Normalized rects [{left, top, width, height}]
  * @param {string} opts.citationRef - Normalized citation reference
- * @param {string} opts.category - 'case_law' | 'statute' | 'regulation' | 'secondary' | 'other'
+ * @param {string} opts.citationType - 'Case Law' | 'Statute' | 'Regulation' | 'Academic' | 'Short Form' | 'Other'
+ * @param {string} [opts.citationStatus='unresolved'] - 'unresolved' | 'verified' | 'resolved'
  * @param {string} [opts.source='pattern'] - 'ai' | 'pattern' | 'manual'
  * @param {string} [opts.comment='']
  * @param {string} [opts.author='system']
+ * @param {string|null} [opts.linkedTo=null] - For Short Form citations, the citation_ref of the full citation this refers to
  */
-export function addCitation({ pageNumber, text, rects, citationRef, category, source = 'pattern', comment = '', author = 'system' }) {
+export function addCitation({ pageNumber, text, rects, citationRef, citationType, citationStatus = 'unresolved', source = 'pattern', comment = '', author = 'system', linkedTo = null }) {
   const citation = {
     id: uuid(),
     pageNumber,
     text,
     rects,
     citationRef,
-    category,
+    citationType,
+    citationStatus,
     source,
-    verified: false,
     comment,
     author,
+    linkedTo,
     timestamp: Date.now(),
-    resolved: false,
     replies: [],
+    scoutStatus: null,
+    scoutSummary: '',
+    scoutSourceUrl: null,
+    scoutSourceSnippet: '',
+    scoutSourceName: '',
   };
   citations = sortByPosition([...citations, citation]);
   return citation;
+}
+
+/**
+ * Add multiple citations at once (avoids triggering reactive updates per-item).
+ */
+export function addCitationsBatch(citationList) {
+  const newCitations = citationList.map(opts => ({
+    id: uuid(),
+    pageNumber: opts.pageNumber,
+    text: opts.text,
+    rects: opts.rects,
+    citationRef: opts.citationRef,
+    citationType: opts.citationType,
+    citationStatus: opts.citationStatus || 'unresolved',
+    source: opts.source || 'pattern',
+    comment: opts.comment || '',
+    author: opts.author || 'system',
+    linkedTo: opts.linkedTo || null,
+    timestamp: Date.now(),
+    replies: [],
+    scoutStatus: null,
+    scoutSummary: '',
+    scoutSourceUrl: null,
+    scoutSourceSnippet: '',
+    scoutSourceName: '',
+  }));
+  citations = sortByPosition([...citations, ...newCitations]);
 }
 
 function sortByPosition(list) {
@@ -64,12 +98,8 @@ export function updateCitationComment(id, comment) {
   citations = citations.map(c => c.id === id ? { ...c, comment } : c);
 }
 
-export function verifyCitation(id) {
-  citations = citations.map(c => c.id === id ? { ...c, verified: !c.verified } : c);
-}
-
-export function resolveCitation(id) {
-  citations = citations.map(c => c.id === id ? { ...c, resolved: !c.resolved } : c);
+export function setCitationStatus(id, status) {
+  citations = citations.map(c => c.id === id ? { ...c, citationStatus: status } : c);
 }
 
 export function deleteCitation(id) {
@@ -90,12 +120,30 @@ export function addCitationReply(citationId, { comment, author = 'user' }) {
     comment,
     author,
     timestamp: Date.now(),
-    resolved: false,
   };
   citations = citations.map(c =>
     c.id === citationId ? { ...c, replies: [...c.replies, reply] } : c
   );
   return reply;
+}
+
+export function updateCitationScout(id, { scoutStatus, scoutSummary, scoutSourceUrl, scoutSourceSnippet, scoutSourceName }) {
+  citations = citations.map(c => c.id === id ? {
+    ...c,
+    scoutStatus,
+    scoutSummary: scoutSummary || '',
+    scoutSourceUrl: scoutSourceUrl || null,
+    scoutSourceSnippet: scoutSourceSnippet || '',
+    scoutSourceName: scoutSourceName || '',
+  } : c);
+}
+
+export function setCitationScouting(id) {
+  citations = citations.map(c => c.id === id ? { ...c, scoutStatus: 'scouting' } : c);
+}
+
+export function restoreCitation(citationData) {
+  citations = sortByPosition([...citations, citationData]);
 }
 
 export function deleteCitationReply(citationId, replyId) {

@@ -10,8 +10,13 @@
     setActiveAnnotationId,
     addAnnotation,
   } from './annotations.svelte.js';
+  import {
+    getCitations,
+    getActiveCitationId,
+    setActiveCitationId,
+  } from './citations.svelte.js';
 
-  let { data, onAnnotationClick = () => {} } = $props();
+  let { data, onAnnotationClick = () => {}, onCitationClick = () => {}, onready = () => {} } = $props();
 
   let container;
   let scrollArea;
@@ -63,6 +68,14 @@
       return;
     }
 
+    if (highlightEl && highlightEl.dataset.citationId) {
+      const id = highlightEl.dataset.citationId;
+      setActiveCitationId(id);
+      setActiveAnnotationId(null);
+      onCitationClick(id);
+      return;
+    }
+
     const wrapper = e.target.closest('.page-wrapper');
     if (!wrapper || !container.contains(wrapper)) {
       const elAtPoint = document.elementFromPoint(e.clientX, e.clientY);
@@ -73,6 +86,14 @@
         const id = highlightAtPoint.dataset.annotationId;
         setActiveAnnotationId(id);
         onAnnotationClick(id);
+        return;
+      }
+
+      if (highlightAtPoint && highlightAtPoint.dataset.citationId) {
+        const id = highlightAtPoint.dataset.citationId;
+        setActiveCitationId(id);
+        setActiveAnnotationId(null);
+        onCitationClick(id);
         return;
       }
 
@@ -105,6 +126,24 @@
         if (x >= left && x <= right && y >= top && y <= bottom) {
           setActiveAnnotationId(annotation.id);
           onAnnotationClick(annotation.id);
+          return;
+        }
+      }
+    }
+
+    const currentCitations = getCitations();
+    for (const citation of currentCitations) {
+      if (citation.citationStatus === 'resolved') continue;
+      const pageRects = citation.rects.filter((r) => (r.pageNumber || citation.pageNumber) === pageNum);
+      for (const rect of pageRects) {
+        const left = rect.left * pageW;
+        const top = rect.top * pageH;
+        const right = left + rect.width * pageW;
+        const bottom = top + rect.height * pageH;
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          setActiveCitationId(citation.id);
+          setActiveAnnotationId(null);
+          onCitationClick(citation.id);
           return;
         }
       }
@@ -296,6 +335,7 @@
     }
 
     rendering = false;
+    onready();
   }
 
   export function getPageWrappers() {
@@ -319,6 +359,8 @@
     const _annotations = annotations;
     const _activeId = activeId;
     const _pending = commentInput.visible;
+    const _citations = getCitations();
+    const _activeCitationId = getActiveCitationId();
     renderHighlights();
   });
 
@@ -360,9 +402,25 @@
         return;
       }
 
+      const citEl = scrollArea?.querySelector(`[data-citation-id="${id}"]`);
+      if (citEl) {
+        citEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
       const annotation = annotations.find((a) => a.id === id);
       if (annotation && annotation.pageNumber > 0) {
         const pageWrapper = pageWrappers[annotation.pageNumber - 1];
+        if (pageWrapper) {
+          pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        return;
+      }
+
+      const citationsList = getCitations();
+      const citation = citationsList.find((c) => c.id === id);
+      if (citation && citation.pageNumber > 0) {
+        const pageWrapper = pageWrappers[citation.pageNumber - 1];
         if (pageWrapper) {
           pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -402,8 +460,37 @@
 
         for (const rect of annotation.rects) {
           const el = document.createElement('div');
-          el.className = 'highlight-rect' + (isActive ? ' active' : '') + (annotation.resolved ? ' resolved' : '');
+          el.className = 'highlight-rect'
+            + (annotation.priority ? ` priority-${annotation.priority}` : '')
+            + (isActive ? ' active' : '')
+            + (annotation.resolved ? ' resolved' : '');
           el.dataset.annotationId = annotation.id;
+          el.style.left = `${rect.left * pageWidth}px`;
+          el.style.top = `${rect.top * pageHeight}px`;
+          el.style.width = `${rect.width * pageWidth}px`;
+          el.style.height = `${rect.height * pageHeight}px`;
+          layer.appendChild(el);
+        }
+      }
+
+      // Render citations
+      const citationsList = getCitations();
+      const activeCitId = getActiveCitationId();
+
+      for (const citation of citationsList) {
+        if (citation.citationStatus === 'resolved') continue;
+
+        // Filter rects that belong to this page
+        const pageRects = citation.rects.filter(r => (r.pageNumber || citation.pageNumber) === pageNum);
+        if (pageRects.length === 0) continue;
+
+        const isCitActive = citation.id === activeCitId;
+
+        for (const rect of pageRects) {
+          const el = document.createElement('div');
+          el.className = 'highlight-rect citation-' + citation.citationStatus
+            + (isCitActive ? ' citation-active' : '');
+          el.dataset.citationId = citation.id;
           el.style.left = `${rect.left * pageWidth}px`;
           el.style.top = `${rect.top * pageHeight}px`;
           el.style.width = `${rect.width * pageWidth}px`;
@@ -536,6 +623,7 @@
   .pdf-container :global(.highlight-rect) {
     position: absolute;
     background: transparent;
+    border: none;
     border-bottom: 2px solid rgba(255, 183, 0, 0.7);
     pointer-events: auto;
     cursor: pointer;
@@ -543,13 +631,16 @@
   }
 
   .pdf-container :global(.highlight-rect:hover) {
-    background: rgba(255, 213, 79, 0.35);
+    background: rgba(255, 213, 79, 0.15);
     mix-blend-mode: multiply;
   }
 
-  .pdf-container :global(.highlight-rect.active) {
+  .pdf-container :global(.highlight-rect.active),
+  .pdf-container :global(.highlight-rect.priority-high.active),
+  .pdf-container :global(.highlight-rect.priority-medium.active),
+  .pdf-container :global(.highlight-rect.priority-low.active) {
     background: rgba(66, 153, 225, 0.3);
-    border-bottom-color: rgba(66, 153, 225, 0.9);
+    border: 1px solid rgba(66, 153, 225, 0.9);
     mix-blend-mode: multiply;
   }
 

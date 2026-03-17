@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workflow Preferences
+
+- **All implementation work should be done via background agents by default.** Only interact inline when specific user input or clarification is needed.
+
 ## Development Commands
 
 ```bash

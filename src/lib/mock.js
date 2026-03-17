@@ -65,6 +65,53 @@ export async function mockSendSummary({ model, onChunk }) {
 /**
  * Mock version of reviewDocument. Returns fake observations using real chunk IDs.
  */
+/**
+ * Mock version of detectCitationsWithLLM. Returns fake citations using real chunk IDs.
+ */
+export async function mockDetectCitations(extractedText) {
+  await delay(500);
+
+  const chunks = extractedText?.chunks || [];
+  if (chunks.length === 0) {
+    return [];
+  }
+
+  const pickChunkId = (offset = 0) => {
+    const idx = Math.min(offset, chunks.length - 1);
+    return chunks[idx].id;
+  };
+
+  const citations = [
+    {
+      chunk_ids: [pickChunkId(0), pickChunkId(3)],
+      citation_ref: 'Daubert v. Merrell Dow Pharmaceuticals, Inc., 509 U.S. 579 (1993)',
+      citation_type: 'Case Law',
+      comment: 'Foundational case establishing the standard for admissibility of expert testimony under Federal Rules of Evidence.',
+    },
+    {
+      chunk_ids: [pickChunkId(5)],
+      citation_ref: 'Kumho Tire Co. v. Carmichael, 526 U.S. 137 (1999)',
+      citation_type: 'Case Law',
+      comment: 'Extended Daubert gatekeeping role to all expert testimony, not just scientific testimony.',
+    },
+    {
+      chunk_ids: [pickChunkId(7)],
+      citation_ref: 'Fed. R. Evid. 702',
+      citation_type: 'Statute',
+      comment: 'Federal Rule of Evidence governing the admissibility of expert testimony.',
+    },
+    {
+      chunk_ids: [pickChunkId(9)],
+      citation_ref: 'Id. at 589',
+      citation_type: 'Short Form',
+      comment: 'Short form reference to the immediately preceding citation.',
+      linked_to: 'Daubert v. Merrell Dow Pharmaceuticals, Inc., 509 U.S. 579 (1993)',
+    },
+  ];
+
+  return citations;
+}
+
 export async function mockReviewDocument(extractedText) {
   await delay(500);
 

@@ -1,4 +1,5 @@
 import { findTextInSpans } from './findTextInSpans.js';
+import { splitSentences } from './splitSentences.js';
 
 async function extract(data) {
   const text = data instanceof Uint8Array ? new TextDecoder().decode(data) : data;
@@ -11,7 +12,7 @@ async function extract(data) {
   let sentenceIndex = 0;
 
   for (const para of paragraphs) {
-    let sentences = para.split(/(?<=[.!?])\s+/).filter((s) => s.trim());
+    let sentences = splitSentences(para);
     if (sentences.length === 0 && para.trim()) {
       sentences = [para.trim()];
     }

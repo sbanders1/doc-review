@@ -6,8 +6,13 @@
     setActiveAnnotationId,
     addAnnotation,
   } from './annotations.svelte.js';
+  import {
+    getCitations,
+    getActiveCitationId,
+    setActiveCitationId,
+  } from './citations.svelte.js';
 
-  let { content, onAnnotationClick = () => {} } = $props();
+  let { content, onAnnotationClick = () => {}, onCitationClick = () => {} } = $props();
 
   let scrollArea;
   let pageWrapper;
@@ -36,6 +41,13 @@
       if (id) {
         setActiveAnnotationId(id);
         onAnnotationClick(id);
+        return;
+      }
+      const citId = highlightEl.dataset.citationId;
+      if (citId) {
+        setActiveCitationId(citId);
+        setActiveAnnotationId(null);
+        onCitationClick(citId);
         return;
       }
     }
@@ -183,6 +195,11 @@
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
+      const citEl = scrollArea?.querySelector(`[data-citation-id="${id}"]`);
+      if (citEl) {
+        citEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
     });
   }
 
@@ -215,8 +232,35 @@
 
       for (const rect of annotation.rects) {
         const el = document.createElement('div');
-        el.className = 'highlight-rect' + (isActive ? ' active' : '') + (annotation.resolved ? ' resolved' : '');
+        el.className = 'highlight-rect'
+          + (annotation.priority ? ` priority-${annotation.priority}` : '')
+          + (isActive ? ' active' : '')
+          + (annotation.resolved ? ' resolved' : '');
         el.dataset.annotationId = annotation.id;
+        el.style.left = `${rect.left * pageWidth}px`;
+        el.style.top = `${rect.top * pageHeight}px`;
+        el.style.width = `${rect.width * pageWidth}px`;
+        el.style.height = `${rect.height * pageHeight}px`;
+        highlightLayer.appendChild(el);
+      }
+    }
+
+    // Render citations
+    const citationsList = getCitations();
+    const activeCitId = getActiveCitationId();
+    for (const citation of citationsList) {
+      if (citation.citationStatus === 'resolved') continue;
+
+      // Filter rects that belong to this page
+      const pageRects = citation.rects.filter(r => (r.pageNumber || citation.pageNumber) === 1);
+      if (pageRects.length === 0) continue;
+
+      const isCitActive = citation.id === activeCitId;
+      for (const rect of pageRects) {
+        const el = document.createElement('div');
+        el.className = 'highlight-rect citation-' + citation.citationStatus
+          + (isCitActive ? ' citation-active' : '');
+        el.dataset.citationId = citation.id;
         el.style.left = `${rect.left * pageWidth}px`;
         el.style.top = `${rect.top * pageHeight}px`;
         el.style.width = `${rect.width * pageWidth}px`;
@@ -230,6 +274,8 @@
     const _ = getAnnotations();
     const __ = getActiveAnnotationId();
     const ___ = commentInput.visible;
+    const ____ = getCitations();
+    const _____ = getActiveCitationId();
     renderHighlights();
   });
 
@@ -302,20 +348,24 @@
 
   :global(.highlight-rect) {
     position: absolute;
-    background: rgba(255, 200, 0, 0.15);
-    border-bottom: 2px solid rgba(255, 200, 0, 0.6);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid rgba(255, 200, 0, 0.7);
     pointer-events: auto;
     cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
   }
 
   :global(.highlight-rect:hover) {
-    background: rgba(255, 200, 0, 0.25);
-    border-bottom-color: rgba(255, 200, 0, 0.9);
+    background: rgba(255, 200, 0, 0.15);
   }
 
-  :global(.highlight-rect.active) {
-    background: rgba(45, 106, 79, 0.15);
-    border-bottom: 2px solid rgba(45, 106, 79, 0.7);
+  :global(.highlight-rect.active),
+  :global(.highlight-rect.priority-high.active),
+  :global(.highlight-rect.priority-medium.active),
+  :global(.highlight-rect.priority-low.active) {
+    background: rgba(66, 153, 225, 0.3);
+    border: 1px solid rgba(66, 153, 225, 0.7);
   }
 
   :global(.highlight-rect.resolved) {

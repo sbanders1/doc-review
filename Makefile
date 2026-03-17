@@ -6,7 +6,7 @@ dev:
 	@if [ -f $(PID_FILE) ] && kill -0 $$(cat $(PID_FILE)) 2>/dev/null; then \
 		echo "Dev server already running (PID $$(cat $(PID_FILE)))"; \
 	else \
-		nohup npm run dev -- --host --port 6173 > .dev.log 2>&1 & echo $$! > $(PID_FILE); \
+		nohup pnpm dev --host --port 6173 > .dev.log 2>&1 & echo $$! > $(PID_FILE); \
 		echo "Dev server started (PID $$(cat $(PID_FILE))), logs in .dev.log"; \
 	fi
 
@@ -22,13 +22,13 @@ stop:
 restart: stop dev
 
 build:
-	npm run build
+	pnpm build
 
 preview:
-	npm run preview -- --host
+	pnpm preview --host
 
 clean:
 	rm -rf dist .dev.log .dev.pid
 
 install:
-	npm install
+	pnpm install

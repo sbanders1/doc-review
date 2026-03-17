@@ -9,9 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Commands
 
 ```bash
-npm run dev      # Start dev server (binds 0.0.0.0:5173)
-npm run build    # Production build (outputs to build/)
-npm run preview  # Preview production build
+pnpm dev      # Start dev server (binds 0.0.0.0:5173)
+pnpm build    # Production build (outputs to build/)
+pnpm preview  # Preview production build
 ```
 
 No test framework or linter is configured.

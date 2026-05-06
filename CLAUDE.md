@@ -18,9 +18,9 @@ No test framework or linter is configured.
 
 The dev server binds to `0.0.0.0`. Port 5173 is typically firewall-blocked — use SSH port forwarding: `ssh -L 5173:localhost:5173 user@host`.
 
-## API Key Setup
+## Claude API Access
 
-The Anthropic API key is loaded at build time from `secrets/.anthropic.key` (injected via Vite `define` as `__ANTHROPIC_API_KEY__`). Falls back to browser localStorage if not present. Never commit this file.
+Claude calls go through Cornerstone's reverse proxy at `https://tools.cornerstone.com/claude-proxy`, which fronts Vertex AI. The proxy handles auth, so no Anthropic API key is needed in the app. All call sites construct their client via `src/lib/anthropicClient.js` (`createClient()`), which uses `@anthropic-ai/vertex-sdk`'s `AnthropicVertex` with `accessToken: 'unused'` and attaches per-request attribution headers (`x-cr-username`, `x-cr-project`, `x-cr-tool`).
 
 ## Architecture
 

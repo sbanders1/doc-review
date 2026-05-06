@@ -1,6 +1,7 @@
 import { pdfAdapter } from './pdf.js';
 import { textAdapter } from './text.js';
 import { docxAdapter } from './docx.js';
+import { markdownAdapter } from './markdown.js';
 
 const adapters = new Map();
 
@@ -12,6 +13,7 @@ function registerAdapter(adapter) {
 registerAdapter(pdfAdapter);
 registerAdapter(textAdapter);
 registerAdapter(docxAdapter);
+registerAdapter(markdownAdapter);
 
 export function getAdapter(fileType) {
   return adapters.get(fileType) || null;

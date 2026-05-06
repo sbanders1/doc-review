@@ -19,7 +19,7 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/vertex-sdk": "^0.16.0",
     "docx-preview": "^0.3.7",
     "lucide-svelte": "^0.577.0",
     "mammoth": "^1.12.0",

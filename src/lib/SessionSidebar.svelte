@@ -1,13 +1,25 @@
 <script>
-  import { FileText, FileType, File, Plus, Trash2, PanelLeftClose, PanelLeftOpen, User, Sun, Moon, Monitor } from 'lucide-svelte';
+  import { FileText, FileType, File, Trash2, PanelLeftClose, PanelLeftOpen, User, Sun, Moon, Monitor } from 'lucide-svelte';
   import { getTheme, toggleTheme } from '$lib/theme.svelte.js';
   import { getModel, setModel, getModelLabel, AVAILABLE_MODELS } from '$lib/model.svelte.js';
   import { getMockMode, toggleMockMode } from '$lib/mockMode.svelte.js';
+  import { getTotalCost, getTotalInputTokens, getTotalOutputTokens, formatCost } from '$lib/cost.svelte.js';
 
-  let { collapsed = $bindable(false), sessions = [], activeId = null, onswitch = () => {}, ondelete = () => {}, oncreate = () => {} } = $props();
+  let { collapsed = $bindable(false), sessions = [], activeId = null, sampleId = null, onswitch = () => {}, ondelete = () => {} } = $props();
+
+  // Pin sample sessions first regardless of lastModified.
+  const orderedSessions = $derived(
+    sampleId
+      ? [...sessions.filter(s => s.id === sampleId), ...sessions.filter(s => s.id !== sampleId)]
+      : sessions
+  );
 
   let menuOpen = $state(false);
   const theme = $derived(getTheme());
+  const costLabel = $derived(formatCost(getTotalCost()));
+  const costTooltip = $derived(
+    `${getTotalInputTokens().toLocaleString()} in · ${getTotalOutputTokens().toLocaleString()} out`
+  );
 
   function handleClickOutside(e) {
     if (menuOpen && !e.target.closest('.avatar-menu-container')) {
@@ -46,10 +58,7 @@
   style="width:{collapsed ? 48 : 330}px;min-width:{collapsed ? 48 : 330}px"
 >
   <div class="border-b border-gray-200 dark:border-gray-800">
-    <div class="flex items-center {collapsed ? 'justify-center' : 'justify-between'} p-2">
-      {#if !collapsed}
-        <span class="text-lg tracking-tight whitespace-nowrap pl-2">CheckMate</span>
-      {/if}
+    <div class="flex items-center {collapsed ? 'justify-center' : 'justify-end'} p-2">
       <button
         class="flex items-center justify-center w-8 h-8 rounded-md bg-transparent text-gray-400 dark:text-gray-500 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-300 transition-colors shrink-0"
         onclick={() => collapsed = !collapsed}
@@ -62,27 +71,13 @@
         {/if}
       </button>
     </div>
-    <div class="{collapsed ? 'flex justify-center' : 'px-3'} pb-2.5 transition-all duration-200 ease-in-out">
-      <button
-        class="flex items-center {collapsed ? 'justify-center' : 'gap-2'} {collapsed ? '' : 'w-full'} py-1 bg-transparent border-none cursor-pointer text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200 ease-in-out rounded-md"
-        onclick={oncreate}
-        title="New document"
-      >
-        <span class="flex items-center justify-center w-6 h-6 rounded-full bg-primary-500 text-white flex-shrink-0">
-          <Plus size={13} />
-        </span>
-        {#if !collapsed}
-          <span class="text-sm font-medium whitespace-nowrap overflow-hidden">New document</span>
-        {/if}
-      </button>
-    </div>
   </div>
 
   {#if collapsed}
     <div class="flex-1 overflow-y-auto flex flex-col items-center gap-1 py-1">
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      {#each sessions as session (session.id)}
+      {#each orderedSessions as session (session.id)}
         <div
           class="flex items-center justify-center w-8 h-8 rounded-md cursor-pointer transition-colors
             {activeId === session.id
@@ -105,7 +100,7 @@
       {:else}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        {#each sessions as session (session.id)}
+        {#each orderedSessions as session (session.id)}
           <div
             class="group w-full flex items-start gap-2.5 px-3 py-2.5 cursor-pointer text-left transition-colors border-l-2
               {activeId === session.id
@@ -117,17 +112,22 @@
               <svelte:component this={getFileIcon(session.fileType)} size={16} />
             </div>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium truncate {activeId === session.id ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'}">
-                {session.name}
+              <div class="text-sm font-medium truncate flex items-center gap-1.5 {activeId === session.id ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'}">
+                <span class="truncate">{session.name}</span>
+                {#if session.id === sampleId}
+                  <span class="shrink-0 px-1.5 py-px text-[0.6rem] font-semibold uppercase tracking-wide rounded border border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500">Sample</span>
+                {/if}
               </div>
             </div>
-            <button
-              class="shrink-0 mt-0.5 p-0.5 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 bg-transparent border-none cursor-pointer transition-all"
-              onclick={(e) => { e.stopPropagation(); ondelete(session.id); }}
-              title="Delete session"
-            >
-              <Trash2 size={13} />
-            </button>
+            {#if session.id !== sampleId}
+              <button
+                class="shrink-0 mt-0.5 p-0.5 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 bg-transparent border-none cursor-pointer transition-all"
+                onclick={(e) => { e.stopPropagation(); ondelete(session.id); }}
+                title="Delete session"
+              >
+                <Trash2 size={13} />
+              </button>
+            {/if}
           </div>
         {/each}
       {/if}
@@ -270,9 +270,12 @@
           {/if}
         </div>
 
-        <div class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-          <Monitor size={12} />
-          <span>{getModelLabel()}</span>
+        <div class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-2">
+          <span class="flex items-center gap-1.5">
+            <Monitor size={12} />
+            <span>{getModelLabel()}</span>
+          </span>
+          <span class="tabular-nums" title={costTooltip}>{costLabel}</span>
         </div>
       </div>
     {/if}

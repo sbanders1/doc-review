@@ -1,16 +1,8 @@
 import { readFileSync, readdirSync } from 'fs'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import { sveltekit } from '@sveltejs/kit/vite'
-
-function loadApiKey() {
-  try {
-    return readFileSync('./secrets/.anthropic.key', 'utf-8').trim()
-  } catch {
-    return ''
-  }
-}
 
 function stripHtmlTags(html) {
   // Remove script/style blocks entirely
@@ -74,14 +66,26 @@ console.log(`[daubert-corpus] Loaded ${daubertDocs.length} documents (${daubertD
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
+  resolve: {
+    alias: {
+      'google-auth-library': resolve('./src/lib/google-auth-stub.js'),
+    },
+  },
   define: {
-    __ANTHROPIC_API_KEY__: JSON.stringify(loadApiKey()),
     __DAUBERT_CORPUS__: JSON.stringify(formatCorpusForPrompt(daubertDocs)),
+    'process.env': '{}',
   },
   server: {
     host: '0.0.0.0',
     port: 6173,
     allowedHosts: ['crilappsdev1'],
+    proxy: {
+      '/claude-proxy': {
+        target: 'https://tools.cornerstone.com',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   preview: {
     host: '0.0.0.0',

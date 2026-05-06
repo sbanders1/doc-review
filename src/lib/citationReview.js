@@ -1,6 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from './anthropicClient.js';
 import { getMockMode } from './mockMode.svelte.js';
 import { mockDetectCitations } from './mock.js';
+import { addUsageCost } from './cost.svelte.js';
 
 const CITATION_PROMPT_INTERNAL = `You are a legal citation extraction system. Analyze the following document and identify every citation, reference, and footnote.
 
@@ -67,15 +68,12 @@ const CITATION_TOOL = {
   },
 };
 
-export async function detectCitationsWithLLM(extractedText, apiKey, model) {
+export async function detectCitationsWithLLM(extractedText, model) {
   if (getMockMode()) {
     return mockDetectCitations(extractedText);
   }
 
-  const client = new Anthropic({
-    apiKey,
-    dangerouslyAllowBrowser: true,
-  });
+  const client = createClient();
 
   const response = await client.messages.stream({
     model,
@@ -90,6 +88,8 @@ export async function detectCitationsWithLLM(extractedText, apiKey, model) {
       },
     ],
   }).finalMessage();
+
+  addUsageCost(model, response.usage);
 
   const toolUse = response.content.find((block) => block.type === 'tool_use');
   if (!toolUse) {

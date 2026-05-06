@@ -116,9 +116,10 @@ export function deleteReply(annotationId, replyId) {
 }
 
 export function getAnnotationsSnapshot() {
+  const persistable = annotations.filter((a) => a.author !== 'argument-spotlight');
   return {
-    annotations: JSON.parse(JSON.stringify(annotations)),
-    activeAnnotationId,
+    annotations: JSON.parse(JSON.stringify(persistable)),
+    activeAnnotationId: persistable.some((a) => a.id === activeAnnotationId) ? activeAnnotationId : null,
   };
 }
 

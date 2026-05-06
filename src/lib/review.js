@@ -1,6 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from './anthropicClient.js';
 import { getMockMode } from './mockMode.svelte.js';
 import { mockReviewDocument } from './mock.js';
+import { addUsageCost } from './cost.svelte.js';
 
 const DAUBERT_CORPUS = typeof __DAUBERT_CORPUS__ !== 'undefined' ? __DAUBERT_CORPUS__ : '';
 
@@ -44,15 +45,12 @@ const REVIEW_TOOL = {
   },
 };
 
-export async function reviewDocument(extractedText, apiKey, userPrompt, model) {
+export async function reviewDocument(extractedText, userPrompt, model) {
   if (getMockMode()) {
-    return mockReviewDocument(extractedText, apiKey, userPrompt, model);
+    return mockReviewDocument(extractedText, userPrompt, model);
   }
 
-  const client = new Anthropic({
-    apiKey,
-    dangerouslyAllowBrowser: true,
-  });
+  const client = createClient();
 
   const fullPrompt = `${userPrompt}\n\n${REVIEW_PROMPT_INTERNAL}`;
 
@@ -73,6 +71,8 @@ export async function reviewDocument(extractedText, apiKey, userPrompt, model) {
       },
     ],
   }).finalMessage();
+
+  addUsageCost(model, response.usage);
 
   const toolUse = response.content.find((block) => block.type === 'tool_use');
   if (!toolUse) {

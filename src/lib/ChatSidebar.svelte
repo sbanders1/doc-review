@@ -2,13 +2,13 @@
   import { tick } from 'svelte';
   import { marked } from 'marked';
   import { ChevronUp, ChevronDown, Send, MessageSquare } from 'lucide-svelte';
-  import { sendMessage, DEFAULT_MODEL } from './chat.js';
+  import { sendMessage } from './chat.js';
   import { getFormattedText } from './documentContext.svelte.js';
-  import { getModel, setModel } from './model.svelte.js';
+  import { getModel } from './model.svelte.js';
 
   marked.setOptions({ breaks: true, gfm: true });
 
-  let { collapsed = $bindable(false), apiKey = '' } = $props();
+  let { collapsed = $bindable(false) } = $props();
 
   let messages = $state([]);
   let inputText = $state('');
@@ -45,11 +45,6 @@
     const text = inputText.trim();
     if (!text || streaming) return;
 
-    if (!apiKey) {
-      error = 'No API key set. Click Review to configure one.';
-      return;
-    }
-
     error = null;
     inputText = '';
 
@@ -66,7 +61,6 @@
       }));
 
       const fullText = await sendMessage({
-        apiKey,
         model: selectedModel,
         messages: apiMessages,
         documentText: getFormattedText(),
@@ -101,15 +95,15 @@
   }
 
   export function restoreChatSnapshot(snapshot) {
+    // Note: don't restore selectedModel from the snapshot. The model is a
+    // global user preference (model.svelte.js + localStorage), not a per-
+    // session attribute — overwriting it on session switch leaks the
+    // session's saved choice into the global selector.
     if (!snapshot) {
       messages = [];
-      setModel(DEFAULT_MODEL);
       return;
     }
     messages = snapshot.messages || [];
-    if (snapshot.selectedModel) {
-      setModel(snapshot.selectedModel);
-    }
   }
 </script>
 

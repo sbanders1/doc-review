@@ -1,8 +1,8 @@
-import { AVAILABLE_MODELS, DEFAULT_MODEL } from './chat.js';
+import { AVAILABLE_MODELS, DEFAULT_MODEL, migrateModelId } from './chat.js';
 
 const STORAGE_KEY = 'checkmate_model';
 
-let selectedModel = $state(localStorage.getItem(STORAGE_KEY) || DEFAULT_MODEL);
+let selectedModel = $state(migrateModelId(localStorage.getItem(STORAGE_KEY)));
 
 export function getModel() {
   return selectedModel;

@@ -1,5 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from './anthropicClient.js';
 import { getMockMode } from './mockMode.svelte.js';
+import { addUsageCost } from './cost.svelte.js';
 
 const SCOUT_TOOL = {
   name: 'report_scout_result',
@@ -61,10 +62,9 @@ High quality results are of utmost importance. Do not attempt to please the user
  *
  * @param {Object} citation - The citation object from the store
  * @param {string} documentContext - The surrounding document text for context
- * @param {string} apiKey - Anthropic API key
  * @returns {Promise<Object>} Scout result
  */
-export async function scoutCitation(citation, documentContext, apiKey, model) {
+export async function scoutCitation(citation, documentContext, model) {
   // Only certain citation types are supported for scouting
   if (!['Statute', 'Academic', 'Case Law', 'Regulation'].includes(citation.citationType)) {
     return {
@@ -81,7 +81,7 @@ export async function scoutCitation(citation, documentContext, apiKey, model) {
     return mockScoutCitation(citation);
   }
 
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const client = createClient();
 
   const userMessage = `Please analyze how this document uses the following citation and determine if the usage is accurate.
 
@@ -102,6 +102,8 @@ Cross-reference this against the actual statute text and assess whether the docu
     tools: [SCOUT_TOOL],
     tool_choice: { type: 'tool', name: 'report_scout_result' },
   }).finalMessage();
+
+  addUsageCost(model, response.usage);
 
   const toolUse = response.content.find((block) => block.type === 'tool_use');
   if (!toolUse) {
